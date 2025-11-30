@@ -23,7 +23,20 @@ const App: React.FC = () => {
   const [initialRecordAction, setInitialRecordAction] = useState<'UPLOAD_AUDIO' | 'SCAN_NOTES' | 'PASTE_TEXT' | 'SCAN_BULLETIN' | null>(null);
 
   useEffect(() => {
-    // Load initial settings and user
+    // 1. Check for deep links (Priority for external access like OAuth verification)
+    const params = new URLSearchParams(window.location.search);
+    const viewParam = params.get('view');
+    
+    if (viewParam === 'privacy') {
+        setCurrentView(AppView.PRIVACY_POLICY);
+        return; 
+    }
+    if (viewParam === 'terms') {
+        setCurrentView(AppView.TERMS_OF_SERVICE);
+        return;
+    }
+
+    // 2. Load initial settings and user
     const savedUser = getUser();
     setUser(savedUser);
 
@@ -107,11 +120,17 @@ const App: React.FC = () => {
   };
 
   const handleLegalBack = () => {
+      // Clear URL params if present so we don't get stuck in a loop on refresh
+      if (window.location.search) {
+          window.history.replaceState({}, '', window.location.pathname);
+      }
+
       if (previousView) {
           setCurrentView(previousView);
           setPreviousView(null);
       } else {
-          // Fallback if no history (e.g. reload on legal page, though not possible with client routing here)
+          // Fallback if no history (e.g. direct link access)
+          // If user is logged in -> Settings, else -> Auth (via Record view redirect logic)
           setCurrentView(user ? AppView.SETTINGS : AppView.RECORD);
       }
   };
