@@ -1,0 +1,8 @@
+{
+  "name": "My Church Bible Study",
+  "description": "AI-powered sermon recorder that generates personalized weekly Bible studies using location-based reminders.",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation"
+  ]
+}
