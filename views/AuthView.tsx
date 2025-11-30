@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { loginUser, registerUser } from '../services/authService';
 
@@ -13,6 +13,41 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // PWA Install State
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      setInstallPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = () => {
+    if (!installPrompt) return;
+    
+    // Show the install prompt
+    installPrompt.prompt();
+    
+    // Wait for the user to respond to the prompt
+    installPrompt.userChoice.then((choiceResult: any) => {
+      if (choiceResult.outcome === 'accepted') {
+        console.log('User accepted the install prompt');
+      } else {
+        console.log('User dismissed the install prompt');
+      }
+      setInstallPrompt(null);
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +81,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="h-full w-full flex items-center justify-center px-6 bg-gray-900">
+    <div className="h-full w-full flex items-center justify-center px-6 bg-gray-900 relative">
       <div className="w-full max-w-md">
         <div className="text-center mb-10">
             <h1 className="text-4xl font-serif font-bold text-white mb-2">My Church Bible Study</h1>
@@ -128,6 +163,29 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
           </div>
         </div>
       </div>
+
+      {/* PWA Install Banner */}
+      {installPrompt && (
+        <div className="absolute bottom-6 left-6 right-6 bg-purple-900 border border-purple-500 p-4 rounded-xl flex items-center justify-between shadow-2xl animate-slide-up">
+            <div className="flex items-center">
+                 <div className="bg-white p-2 rounded-lg mr-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-600" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.968 7.968 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z" />
+                    </svg>
+                 </div>
+                 <div>
+                     <p className="font-bold text-white text-sm">Install App</p>
+                     <p className="text-purple-200 text-xs">Add to your home screen</p>
+                 </div>
+            </div>
+            <button 
+                onClick={handleInstallClick}
+                className="bg-white text-purple-900 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-100 transition-colors"
+            >
+                Install
+            </button>
+        </div>
+      )}
     </div>
   );
 };
