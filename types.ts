@@ -17,6 +17,7 @@ export interface User {
   avatar?: string;
   bio?: string;
   churchName?: string;
+  googleId?: string;
 }
 
 export interface GeoLocation {
@@ -106,7 +107,9 @@ export enum AppView {
   STUDY_DETAIL = 'STUDY_DETAIL',
   ONBOARDING = 'ONBOARDING',
   EVENTS = 'EVENTS',
-  COMMUNITY = 'COMMUNITY'
+  COMMUNITY = 'COMMUNITY',
+  PRIVACY_POLICY = 'PRIVACY_POLICY',
+  TERMS_OF_SERVICE = 'TERMS_OF_SERVICE'
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {

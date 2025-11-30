@@ -17,6 +17,15 @@ const saveUsersDB = (users: User[]) => {
   localStorage.setItem(USERS_TABLE_KEY, JSON.stringify(users));
 };
 
+// Helper to decode JWT (Google ID Token)
+const parseJwt = (token: string) => {
+    try {
+      return JSON.parse(atob(token.split('.')[1]));
+    } catch (e) {
+      return null;
+    }
+};
+
 export const registerUser = (email: string, password: string, name: string): Promise<User> => {
   return new Promise((resolve, reject) => {
     // Simulate network delay
@@ -67,6 +76,55 @@ export const loginUser = (email: string, password: string): Promise<User> => {
     }, 800);
   });
 };
+
+export const loginWithGoogle = (credential: string): Promise<User> => {
+    return new Promise((resolve, reject) => {
+        const payload = parseJwt(credential);
+        if (!payload) {
+            reject(new Error("Invalid Google Token"));
+            return;
+        }
+
+        const email = payload.email;
+        const name = payload.name;
+        const picture = payload.picture;
+        const googleId = payload.sub;
+
+        const users = getUsersDB();
+        // Check if user exists by email OR googleId
+        let user = users.find(u => 
+            u.email.toLowerCase() === email.toLowerCase() || 
+            (u.googleId && u.googleId === googleId)
+        );
+
+        if (user) {
+            // Log in existing user
+            // Optional: Update avatar if changed
+            if (picture && !user.avatar?.startsWith('bg-')) {
+                user.avatar = picture; 
+                saveUsersDB(users); // Persist update
+            }
+            
+            localStorage.setItem(CURRENT_USER_ID_KEY, user.id);
+            resolve(user);
+        } else {
+            // Register new user from Google profile
+             const newUser: User = {
+                id: crypto.randomUUID(),
+                email,
+                name,
+                password: "", // No password for google users
+                avatar: picture || 'bg-blue-500',
+                googleId: googleId
+            };
+            
+            users.push(newUser);
+            saveUsersDB(users);
+            localStorage.setItem(CURRENT_USER_ID_KEY, newUser.id);
+            resolve(newUser);
+        }
+    });
+}
 
 export const getCurrentUser = (): User | null => {
   const currentId = localStorage.getItem(CURRENT_USER_ID_KEY);

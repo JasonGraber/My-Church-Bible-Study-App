@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserSettings, StudyDuration, StudyLength, GeoLocation, DEFAULT_SETTINGS, User } from '../types';
+import { UserSettings, StudyDuration, StudyLength, GeoLocation, DEFAULT_SETTINGS, User, AppView } from '../types';
 import { saveSettings, getSettings, getUser, logoutUser } from '../services/storageService';
 import { getCurrentLocation } from '../services/geoService';
 import { searchChurch } from '../services/geminiService';
@@ -7,6 +7,7 @@ import { searchChurch } from '../services/geminiService';
 interface SettingsViewProps {
   onUpdate: (settings: UserSettings) => void;
   onLogout: () => void;
+  onShowLegal: (view: AppView.PRIVACY_POLICY | AppView.TERMS_OF_SERVICE) => void;
 }
 
 interface SearchResult {
@@ -18,7 +19,7 @@ interface SearchResult {
   serviceTimes?: string[];
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowLegal }) => {
   // Initialize from storage directly
   const [localSettings, setLocalSettings] = useState<UserSettings>(() => getSettings());
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -329,8 +330,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout }) => {
           </div>
         </div>
         
-        <div className="text-center">
-            <p className="text-xs text-gray-600">Settings are saved automatically</p>
+        {/* Footer Links */}
+        <div className="flex justify-center space-x-4 text-xs text-gray-500 pt-8 pb-4">
+            <button onClick={() => onShowLegal(AppView.PRIVACY_POLICY)} className="hover:text-gray-300">Privacy Policy</button>
+            <span>•</span>
+            <button onClick={() => onShowLegal(AppView.TERMS_OF_SERVICE)} className="hover:text-gray-300">Terms of Service</button>
         </div>
       </div>
     </div>

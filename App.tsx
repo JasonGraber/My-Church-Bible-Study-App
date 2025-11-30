@@ -10,9 +10,12 @@ import AuthView from './views/AuthView';
 import OnboardingView from './views/OnboardingView';
 import EventsView from './views/EventsView';
 import CommunityView from './views/CommunityView';
+import PrivacyPolicyView from './views/PrivacyPolicyView';
+import TermsOfServiceView from './views/TermsOfServiceView';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.RECORD);
+  const [previousView, setPreviousView] = useState<AppView | null>(null);
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
   const [selectedStudy, setSelectedStudy] = useState<SermonStudy | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -97,8 +100,24 @@ const App: React.FC = () => {
       }
   };
 
-  if (!user) {
-    return <AuthView onLogin={handleLogin} />;
+  // Legal Pages Navigation
+  const handleShowLegal = (view: AppView.PRIVACY_POLICY | AppView.TERMS_OF_SERVICE) => {
+      setPreviousView(currentView); // Save where we came from
+      setCurrentView(view);
+  };
+
+  const handleLegalBack = () => {
+      if (previousView) {
+          setCurrentView(previousView);
+          setPreviousView(null);
+      } else {
+          // Fallback if no history (e.g. reload on legal page, though not possible with client routing here)
+          setCurrentView(user ? AppView.SETTINGS : AppView.RECORD);
+      }
+  };
+
+  if (!user && currentView !== AppView.PRIVACY_POLICY && currentView !== AppView.TERMS_OF_SERVICE) {
+    return <AuthView onLogin={handleLogin} onShowLegal={handleShowLegal} />;
   }
 
   const renderView = () => {
@@ -124,7 +143,7 @@ const App: React.FC = () => {
       case AppView.COMMUNITY:
         return <CommunityView />;
       case AppView.SETTINGS:
-        return <SettingsView onUpdate={setSettings} onLogout={handleLogout} />;
+        return <SettingsView onUpdate={setSettings} onLogout={handleLogout} onShowLegal={handleShowLegal} />;
       case AppView.STUDY_DETAIL:
         return selectedStudy ? (
             <StudyDetail 
@@ -136,12 +155,21 @@ const App: React.FC = () => {
         );
       case AppView.ONBOARDING:
         return <OnboardingView settings={settings} onComplete={handleOnboardingComplete} />;
+      case AppView.PRIVACY_POLICY:
+        return <PrivacyPolicyView onBack={handleLegalBack} />;
+      case AppView.TERMS_OF_SERVICE:
+        return <TermsOfServiceView onBack={handleLegalBack} />;
       default:
         return <RecordView settings={settings} onStudyGenerated={handleStudyGenerated} setView={handleRecordViewMount} />;
     }
   };
 
-  const shouldShowNavBar = currentView !== AppView.STUDY_DETAIL && currentView !== AppView.ONBOARDING;
+  const shouldShowNavBar = 
+    user && 
+    currentView !== AppView.STUDY_DETAIL && 
+    currentView !== AppView.ONBOARDING &&
+    currentView !== AppView.PRIVACY_POLICY &&
+    currentView !== AppView.TERMS_OF_SERVICE;
 
   return (
     <div className="h-screen w-screen bg-gray-900 text-white overflow-hidden flex flex-col">
