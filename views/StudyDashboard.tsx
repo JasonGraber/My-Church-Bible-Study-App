@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SermonStudy } from '../types';
 import { getStudies, deleteStudy } from '../services/storageService';
+import { createPost } from '../services/socialService';
 
 interface StudyDashboardProps {
   onSelectStudy: (study: SermonStudy) => void;
@@ -30,12 +31,25 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
   const handleShare = async (e: React.MouseEvent, study: SermonStudy) => {
     e.stopPropagation();
     
-    // Simulate a unique link - in a real app this would be a DB ID
-    const uniqueLink = `https://mychurchbible.app/share/${study.id}`;
+    // Custom Share Dialog / Logic
+    const action = window.prompt("Type 'P' to Post to Community Feed, or 'C' to copy link.");
     
+    if (action?.toUpperCase() === 'P') {
+        try {
+            createPost(`I just finished generating a study for "${study.sermonTitle}". It's really good!`, 'STUDY_SHARE', study.id);
+            alert("Posted to Community Feed!");
+        } catch (e) {
+            alert("Failed to post.");
+        }
+        return;
+    }
+
+    if (action?.toUpperCase() !== 'C') return;
+
+    const uniqueLink = `https://mychurchbible.app/share/${study.id}`;
     const shareData = {
         title: study.sermonTitle,
-        text: `Check out this Bible Study: "${study.sermonTitle}"${study.preacher ? ` by ${study.preacher}` : ''}. \n\nSummary: ${study.days[0]?.devotionalContent.substring(0, 100)}...`,
+        text: `Check out this Bible Study: "${study.sermonTitle}".`,
         url: uniqueLink
     };
 
@@ -43,9 +57,8 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
         if (navigator.share) {
             await navigator.share(shareData);
         } else {
-            // Fallback for desktop or browsers without share API
             await navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`);
-            alert("Link and summary copied to clipboard!");
+            alert("Link copied to clipboard!");
         }
     } catch (err) {
         console.error("Error sharing:", err);

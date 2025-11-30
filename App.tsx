@@ -9,6 +9,7 @@ import StudyDetail from './views/StudyDetail';
 import AuthView from './views/AuthView';
 import OnboardingView from './views/OnboardingView';
 import EventsView from './views/EventsView';
+import CommunityView from './views/CommunityView';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.RECORD);
@@ -16,51 +17,43 @@ const App: React.FC = () => {
   const [selectedStudy, setSelectedStudy] = useState<SermonStudy | null>(null);
   const [user, setUser] = useState<User | null>(null);
   
-  // State to trigger specific actions when navigating to RecordView
   const [initialRecordAction, setInitialRecordAction] = useState<'UPLOAD_AUDIO' | 'SCAN_NOTES' | 'PASTE_TEXT' | 'SCAN_BULLETIN' | null>(null);
 
   useEffect(() => {
     // Load initial settings and user
-    const savedSettings = getSettings();
-    setSettings(savedSettings);
-    
     const savedUser = getUser();
     setUser(savedUser);
 
-    // Initial View Logic
     if (savedUser) {
+        const savedSettings = getSettings();
+        setSettings(savedSettings);
+
         if (!savedSettings.churchName) {
             setCurrentView(AppView.ONBOARDING);
         } else {
             setCurrentView(AppView.RECORD);
         }
-    }
 
-    // Sunday Notification Check
-    const checkSundayReminder = () => {
-        const now = new Date();
-        const isSunday = now.getDay() === 0;
-        
-        if (isSunday && savedSettings.sundayReminderEnabled && savedSettings.serviceTimes?.length) {
-            // Very basic simulation: If it's Sunday, we just log/notify once per session for demo
-            if (Notification.permission === "granted") {
-                 new Notification("It's Sunday!", { 
-                     body: `Head to ${savedSettings.churchName || 'church'} soon! Service times: ${savedSettings.serviceTimes.join(', ')}` 
-                 });
+        const checkSundayReminder = () => {
+            const now = new Date();
+            const isSunday = now.getDay() === 0;
+            if (isSunday && savedSettings.sundayReminderEnabled && savedSettings.serviceTimes?.length) {
+                if (Notification.permission === "granted") {
+                     new Notification("It's Sunday!", { 
+                         body: `Head to ${savedSettings.churchName || 'church'} soon! Service times: ${savedSettings.serviceTimes.join(', ')}` 
+                     });
+                }
             }
-        }
-    };
-    
-    if (savedUser && savedSettings.churchName) {
-        checkSundayReminder();
+        };
+        if (savedSettings.churchName) checkSundayReminder();
     }
-
   }, []);
 
   const handleLogin = (loggedInUser: User) => {
     setUser(loggedInUser);
     const savedSettings = getSettings();
-    // If no church set, go to onboarding
+    setSettings(savedSettings);
+
     if (!savedSettings.churchName) {
         setCurrentView(AppView.ONBOARDING);
     } else {
@@ -70,7 +63,7 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     setUser(null);
-    setCurrentView(AppView.RECORD); // Reset view logic will handle auth gate
+    setCurrentView(AppView.RECORD); 
   };
 
   const handleStudyGenerated = (study: SermonStudy) => {
@@ -87,7 +80,6 @@ const App: React.FC = () => {
       setCurrentView(AppView.RECORD);
   };
 
-  // Handlers for quick actions from other views
   const handleScanBulletin = () => {
       setInitialRecordAction('SCAN_BULLETIN');
       setCurrentView(AppView.RECORD);
@@ -98,7 +90,6 @@ const App: React.FC = () => {
       setCurrentView(AppView.RECORD);
   };
 
-  // Clear the initial action once consumed
   const handleRecordViewMount = (view: AppView) => {
       setCurrentView(view);
       if (view !== AppView.RECORD) {
@@ -106,7 +97,6 @@ const App: React.FC = () => {
       }
   };
 
-  // Auth Gate
   if (!user) {
     return <AuthView onLogin={handleLogin} />;
   }
@@ -131,6 +121,8 @@ const App: React.FC = () => {
         );
       case AppView.EVENTS:
         return <EventsView onScanBulletin={handleScanBulletin} />;
+      case AppView.COMMUNITY:
+        return <CommunityView />;
       case AppView.SETTINGS:
         return <SettingsView onUpdate={setSettings} onLogout={handleLogout} />;
       case AppView.STUDY_DETAIL:
@@ -153,12 +145,9 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen bg-gray-900 text-white overflow-hidden flex flex-col">
-        {/* Main Content Area */}
         <main className="flex-1 h-full overflow-hidden relative">
             {renderView()}
         </main>
-        
-        {/* Navigation */}
         {shouldShowNavBar && (
              <NavBar currentView={currentView} setView={handleRecordViewMount} />
         )}

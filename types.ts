@@ -12,7 +12,11 @@ export enum StudyLength {
 export interface User {
   id: string;
   email: string;
-  name?: string;
+  name: string;
+  password?: string; // Stored locally for demo auth
+  avatar?: string;
+  bio?: string;
+  churchName?: string;
 }
 
 export interface GeoLocation {
@@ -46,7 +50,8 @@ export interface DailyStudy {
 
 export interface SermonStudy {
   id: string;
-  sermonTitle: string; // Generated or User Input
+  userId: string; // Owner
+  sermonTitle: string; 
   preacher?: string;
   dateRecorded: string;
   originalAudioDuration: number; // seconds
@@ -66,9 +71,32 @@ export interface ChurchEvent {
 export interface Bulletin {
   id: string;
   dateScanned: string;
-  title: string; // e.g. "Bulletin - Oct 24"
+  title: string; 
   events: ChurchEvent[];
   rawSummary: string;
+}
+
+// Social Types
+export interface Comment {
+  id: string;
+  userId: string;
+  userName: string;
+  text: string;
+  timestamp: string;
+}
+
+export interface Post {
+  id: string;
+  userId: string; // Author
+  userName: string;
+  userAvatar?: string; // Color code or URL
+  studyId?: string; // Linked study
+  content: string; // "Just finished this study on Grace..."
+  timestamp: string;
+  likes: number;
+  isLikedByCurrentUser: boolean;
+  comments: Comment[];
+  type: 'STUDY_SHARE' | 'PRAYER_REQUEST' | 'testimony';
 }
 
 export enum AppView {
@@ -77,7 +105,8 @@ export enum AppView {
   SETTINGS = 'SETTINGS',
   STUDY_DETAIL = 'STUDY_DETAIL',
   ONBOARDING = 'ONBOARDING',
-  EVENTS = 'EVENTS'
+  EVENTS = 'EVENTS',
+  COMMUNITY = 'COMMUNITY'
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {

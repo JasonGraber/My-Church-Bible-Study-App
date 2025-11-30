@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { SermonStudy, UserSettings, StudyLength, Bulletin } from '../types';
+import { getCurrentUser } from './authService';
 
 // Helper to convert Blob to Base64
 const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -239,10 +240,12 @@ export const generateBibleStudy = async (
   }
 
   const data = JSON.parse(responseText);
+  const user = getCurrentUser();
 
   // Map to internal type and add IDs
   return {
     id: crypto.randomUUID(),
+    userId: user?.id || 'anonymous',
     sermonTitle: data.sermonTitle,
     preacher: data.preacher,
     dateRecorded: new Date().toISOString(),

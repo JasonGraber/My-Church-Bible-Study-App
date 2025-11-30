@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { saveUser } from '../services/storageService';
+import { loginUser, registerUser } from '../services/authService';
 
 interface AuthViewProps {
   onLogin: (user: User) => void;
@@ -12,8 +12,9 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -27,16 +28,21 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
       return;
     }
 
-    // Mock Authentication Logic
-    // In a real app, this would hit an API
-    const newUser: User = {
-      id: crypto.randomUUID(),
-      email,
-      name: name || email.split('@')[0],
-    };
+    setIsLoading(true);
 
-    saveUser(newUser);
-    onLogin(newUser);
+    try {
+        let user;
+        if (isLogin) {
+            user = await loginUser(email, password);
+        } else {
+            user = await registerUser(email, password, name);
+        }
+        onLogin(user);
+    } catch (err: any) {
+        setError(err.message || "Authentication failed");
+    } finally {
+        setIsLoading(false);
+    }
   };
 
   return (
@@ -44,11 +50,11 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
       <div className="w-full max-w-md">
         <div className="text-center mb-10">
             <h1 className="text-4xl font-serif font-bold text-white mb-2">My Church Bible Study</h1>
-            <p className="text-gray-400">Your personal sermon companion</p>
+            <p className="text-gray-400">Connect with your church. Deepen your faith.</p>
         </div>
 
         <div className="bg-gray-800 p-8 rounded-2xl border border-gray-700 shadow-xl">
-          <h2 className="text-2xl font-bold text-white mb-6">{isLogin ? "Welcome Back" : "Create Account"}</h2>
+          <h2 className="text-2xl font-bold text-white mb-6">{isLogin ? "Welcome Back" : "Join the Community"}</h2>
           
           {error && (
             <div className="bg-red-900/50 border border-red-700 text-red-200 text-sm p-3 rounded-lg mb-4">
@@ -59,7 +65,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
           <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Name</label>
+                <label className="block text-sm font-medium text-gray-400 mb-1">Full Name</label>
                 <input
                   type="text"
                   value={name}
@@ -94,18 +100,30 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
 
             <button
               type="submit"
-              className="w-full py-4 rounded-xl bg-white text-gray-900 font-bold text-lg hover:bg-gray-100 transition-colors shadow-lg mt-4"
+              disabled={isLoading}
+              className="w-full py-4 rounded-xl bg-purple-600 text-white font-bold text-lg hover:bg-purple-700 transition-colors shadow-lg mt-4 disabled:opacity-50 disabled:cursor-wait"
             >
-              {isLogin ? "Sign In" : "Create Account"}
+              {isLoading ? (
+                  <span className="flex items-center justify-center">
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Processing...
+                  </span>
+              ) : (
+                  isLogin ? "Sign In" : "Create Account"
+              )}
             </button>
           </form>
 
           <div className="mt-6 text-center">
             <button
+              type="button"
               onClick={() => { setIsLogin(!isLogin); setError(null); }}
               className="text-purple-400 hover:text-purple-300 text-sm font-medium"
             >
-              {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+              {isLogin ? "New to the church? Join here" : "Already a member? Sign in"}
             </button>
           </div>
         </div>
