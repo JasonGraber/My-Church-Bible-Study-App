@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { UserSettings, StudyDuration, StudyLength, GeoLocation, DEFAULT_SETTINGS, User, AppView } from '../types';
-import { saveSettings, getSettings, getUser, logoutUser } from '../services/storageService';
+import { saveSettings, getSettings, getUser, logoutUser, updateUser } from '../services/storageService';
 import { getCurrentLocation } from '../services/geoService';
 import { searchChurch } from '../services/geminiService';
 
@@ -8,6 +9,7 @@ interface SettingsViewProps {
   onUpdate: (settings: UserSettings) => void;
   onLogout: () => void;
   onShowLegal: (view: AppView.PRIVACY_POLICY | AppView.TERMS_OF_SERVICE) => void;
+  onViewProfile?: (userId: string) => void;
 }
 
 interface SearchResult {
@@ -19,11 +21,16 @@ interface SearchResult {
   serviceTimes?: string[];
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowLegal }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowLegal, onViewProfile }) => {
   // Initialize from storage directly
   const [localSettings, setLocalSettings] = useState<UserSettings>(() => getSettings());
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoadingLoc, setIsLoadingLoc] = useState(false);
+  
+  // Profile Edit State
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editBio, setEditBio] = useState("");
+  const [editAvatar, setEditAvatar] = useState("");
   
   // Search State
   const [searchQuery, setSearchQuery] = useState("");
@@ -31,7 +38,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
   useEffect(() => {
-    setCurrentUser(getUser());
+    const u = getUser();
+    setCurrentUser(u);
+    if (u) {
+        setEditBio(u.bio || "");
+        setEditAvatar(u.avatar || "");
+    }
   }, []);
 
   // Autosave effect
@@ -43,6 +55,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
   const handleLogout = () => {
       logoutUser();
       onLogout();
+  };
+  
+  const handleSaveProfile = () => {
+      if (!currentUser) return;
+      const updatedUser = { ...currentUser, bio: editBio, avatar: editAvatar };
+      updateUser(updatedUser);
+      setCurrentUser(updatedUser);
+      setIsEditingProfile(false);
   };
 
   const setLocation = async () => {
@@ -123,14 +143,60 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
       <div className="space-y-8">
         
         {/* Profile Section */}
-        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700 flex items-center space-x-4">
-            <div className="h-12 w-12 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold text-xl">
-                {currentUser?.name?.charAt(0).toUpperCase() || "U"}
-            </div>
-            <div>
-                <p className="text-white font-medium">{currentUser?.name}</p>
-                <p className="text-xs text-gray-500">{currentUser?.email}</p>
-            </div>
+        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+            {isEditingProfile ? (
+                <div className="space-y-3">
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wide">Edit Profile</h3>
+                    <div>
+                        <label className="text-xs text-gray-500">Avatar URL (or keep blank for default)</label>
+                        <input 
+                            type="text" 
+                            value={editAvatar}
+                            onChange={(e) => setEditAvatar(e.target.value)}
+                            placeholder="https://..."
+                            className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs text-gray-500">Bio</label>
+                        <textarea 
+                            value={editBio}
+                            onChange={(e) => setEditBio(e.target.value)}
+                            placeholder="Share a bit about your faith journey..."
+                            className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-2 text-sm text-white focus:border-purple-500 focus:outline-none h-20 resize-none"
+                        />
+                    </div>
+                    <div className="flex space-x-2">
+                        <button onClick={handleSaveProfile} className="bg-purple-600 text-white px-3 py-1.5 rounded text-xs font-bold">Save</button>
+                        <button onClick={() => setIsEditingProfile(false)} className="bg-gray-700 text-white px-3 py-1.5 rounded text-xs">Cancel</button>
+                    </div>
+                </div>
+            ) : (
+                <div className="flex items-center space-x-4">
+                    <div className={`h-14 w-14 rounded-full ${currentUser?.avatar || 'bg-purple-600'} flex-shrink-0 flex items-center justify-center text-white font-bold text-xl overflow-hidden`}>
+                        {currentUser?.avatar?.startsWith('http') ? (
+                             <img src={currentUser.avatar} alt="av" className="w-full h-full object-cover" />
+                        ) : (
+                            currentUser?.name?.charAt(0).toUpperCase() || "U"
+                        )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-white font-bold truncate">{currentUser?.name}</p>
+                        <p className="text-xs text-gray-500 truncate">{currentUser?.email}</p>
+                        {currentUser?.bio && <p className="text-xs text-gray-400 mt-1 italic truncate">"{currentUser.bio}"</p>}
+                    </div>
+                    <button onClick={() => setIsEditingProfile(true)} className="text-xs text-purple-400 hover:underline">Edit</button>
+                </div>
+            )}
+            
+            {!isEditingProfile && onViewProfile && currentUser && (
+                <button 
+                    onClick={() => onViewProfile(currentUser.id)}
+                    className="w-full mt-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold rounded transition-colors"
+                >
+                    View Public Profile
+                </button>
+            )}
         </div>
 
         {/* Study Duration */}

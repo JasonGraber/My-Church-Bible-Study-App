@@ -1,4 +1,5 @@
-import { UserSettings, SermonStudy, DEFAULT_SETTINGS, User, Bulletin, Post } from '../types';
+
+import { UserSettings, SermonStudy, DEFAULT_SETTINGS, User, Bulletin, Post, Comment } from '../types';
 import { getCurrentUser } from './authService';
 
 const SETTINGS_KEY_PREFIX = 'sermon_scribe_settings_';
@@ -7,7 +8,7 @@ const BULLETINS_KEY = 'sermon_scribe_bulletins';
 const POSTS_KEY = 'sermon_scribe_posts';
 
 // --- User Management (Delegated to Auth Service mostly) ---
-export { getCurrentUser as getUser, logout as logoutUser } from './authService';
+export { getCurrentUser as getUser, logout as logoutUser, updateUser, getUserById } from './authService';
 
 // --- Settings (Scoped by User) ---
 export const getSettings = (): UserSettings => {
@@ -138,6 +139,17 @@ export const getCommunityPosts = (): Post[] => {
     }
 }
 
+export const getPostsByUserId = (userId: string): Post[] => {
+    try {
+        const allPosts = getCommunityPosts();
+        return allPosts.filter(p => p.userId === userId).sort((a, b) => 
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
+    } catch(e) {
+        return [];
+    }
+}
+
 export const savePost = (post: Post): void => {
     const posts = getCommunityPosts();
     posts.unshift(post);
@@ -151,4 +163,18 @@ export const updatePost = (post: Post): void => {
         posts[idx] = post;
         localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
     }
+}
+
+export const addComment = (postId: string, comment: Comment): Post | null => {
+    const posts = getCommunityPosts();
+    const idx = posts.findIndex(p => p.id === postId);
+    if (idx === -1) return null;
+
+    const post = posts[idx];
+    post.comments = post.comments || [];
+    post.comments.push(comment);
+    
+    posts[idx] = post;
+    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+    return post;
 }

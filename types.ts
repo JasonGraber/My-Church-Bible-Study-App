@@ -1,3 +1,4 @@
+
 export enum StudyDuration {
   FIVE_DAY = 5,
   SEVEN_DAY = 7,
@@ -18,6 +19,7 @@ export interface User {
   bio?: string;
   churchName?: string;
   googleId?: string;
+  friends?: string[]; // List of User IDs
 }
 
 export interface GeoLocation {
@@ -82,8 +84,10 @@ export interface Comment {
   id: string;
   userId: string;
   userName: string;
+  userAvatar?: string;
   text: string;
   timestamp: string;
+  replies?: Comment[];
 }
 
 export interface Post {
@@ -100,6 +104,13 @@ export interface Post {
   type: 'STUDY_SHARE' | 'PRAYER_REQUEST' | 'testimony';
 }
 
+export interface SocialProfile {
+    id: string;
+    name: string;
+    avatar: string;
+    isFriend: boolean;
+}
+
 export enum AppView {
   RECORD = 'RECORD',
   HISTORY = 'HISTORY',
@@ -108,6 +119,7 @@ export enum AppView {
   ONBOARDING = 'ONBOARDING',
   EVENTS = 'EVENTS',
   COMMUNITY = 'COMMUNITY',
+  PROFILE = 'PROFILE',
   PRIVACY_POLICY = 'PRIVACY_POLICY',
   TERMS_OF_SERVICE = 'TERMS_OF_SERVICE'
 }

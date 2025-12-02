@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { AppView, SermonStudy, UserSettings, DEFAULT_SETTINGS, User } from './types';
 import { getSettings, getUser } from './services/storageService';
@@ -10,6 +11,7 @@ import AuthView from './views/AuthView';
 import OnboardingView from './views/OnboardingView';
 import EventsView from './views/EventsView';
 import CommunityView from './views/CommunityView';
+import ProfileView from './views/ProfileView';
 import PrivacyPolicyView from './views/PrivacyPolicyView';
 import TermsOfServiceView from './views/TermsOfServiceView';
 
@@ -19,6 +21,9 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
   const [selectedStudy, setSelectedStudy] = useState<SermonStudy | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  
+  // New: Target user profile ID when navigating to ProfileView
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   
   const [initialRecordAction, setInitialRecordAction] = useState<'UPLOAD_AUDIO' | 'SCAN_NOTES' | 'PASTE_TEXT' | 'SCAN_BULLETIN' | null>(null);
 
@@ -112,6 +117,19 @@ const App: React.FC = () => {
           setInitialRecordAction(null);
       }
   };
+  
+  // Navigation to Profile
+  const handleViewProfile = (userId: string) => {
+      setPreviousView(currentView);
+      setSelectedUserId(userId);
+      setCurrentView(AppView.PROFILE);
+  };
+
+  const handleProfileBack = () => {
+      setCurrentView(previousView || AppView.COMMUNITY);
+      setPreviousView(null);
+      setSelectedUserId(null);
+  };
 
   // Legal Pages Navigation
   const handleShowLegal = (view: AppView.PRIVACY_POLICY | AppView.TERMS_OF_SERVICE) => {
@@ -160,9 +178,22 @@ const App: React.FC = () => {
       case AppView.EVENTS:
         return <EventsView onScanBulletin={handleScanBulletin} />;
       case AppView.COMMUNITY:
-        return <CommunityView />;
+        return <CommunityView onViewProfile={handleViewProfile} />;
+      case AppView.PROFILE:
+        return selectedUserId ? (
+            <ProfileView userId={selectedUserId} onBack={handleProfileBack} />
+        ) : (
+            <CommunityView onViewProfile={handleViewProfile} />
+        );
       case AppView.SETTINGS:
-        return <SettingsView onUpdate={setSettings} onLogout={handleLogout} onShowLegal={handleShowLegal} />;
+        return (
+            <SettingsView 
+                onUpdate={setSettings} 
+                onLogout={handleLogout} 
+                onShowLegal={handleShowLegal} 
+                onViewProfile={handleViewProfile}
+            />
+        );
       case AppView.STUDY_DETAIL:
         return selectedStudy ? (
             <StudyDetail 
@@ -188,7 +219,8 @@ const App: React.FC = () => {
     currentView !== AppView.STUDY_DETAIL && 
     currentView !== AppView.ONBOARDING &&
     currentView !== AppView.PRIVACY_POLICY &&
-    currentView !== AppView.TERMS_OF_SERVICE;
+    currentView !== AppView.TERMS_OF_SERVICE &&
+    currentView !== AppView.PROFILE;
 
   return (
     <div className="h-screen w-screen bg-gray-900 text-white overflow-hidden flex flex-col">
