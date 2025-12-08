@@ -1,3 +1,4 @@
+
 import { User } from '../types';
 import { supabase } from './supabaseClient';
 
@@ -12,7 +13,18 @@ const mapSupabaseUser = (sbUser: any, profile: any): User => {
         avatar: profile?.avatar || sbUser.user_metadata?.avatar_url || 'bg-purple-600',
         bio: profile?.bio || '',
         friends: profile?.friends || [],
-        googleId: sbUser.app_metadata?.provider === 'google' ? 'linked' : undefined
+        googleId: sbUser.app_metadata?.provider === 'google' ? 'linked' : undefined,
+        settings: profile ? {
+            churchName: profile.church_name,
+            churchLocation: profile.church_location,
+            studyDuration: profile.study_duration,
+            studyLength: profile.study_length,
+            supportingReferencesCount: profile.supporting_references_count,
+            notificationTime: profile.notification_time,
+            serviceTimes: profile.service_times,
+            geofenceEnabled: profile.geofence_enabled,
+            sundayReminderEnabled: profile.sunday_reminder_enabled
+        } : undefined
     };
 };
 
@@ -88,14 +100,22 @@ export const loginUser = async (email: string, password: string): Promise<User> 
 export const initiateGoogleLogin = async (): Promise<void> => {
     if (!supabase) throw new Error("Supabase not configured");
 
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-            redirectTo: window.location.origin
+            redirectTo: window.location.origin,
+            skipBrowserRedirect: true // We will handle the redirect manually to ensure it works
         }
     });
 
     if (error) throw error;
+    
+    if (data?.url) {
+        // Manual redirect
+        window.location.href = data.url;
+    } else {
+        throw new Error("No redirect URL returned from Supabase");
+    }
 };
 
 export const getCurrentUser = (): User | null => {

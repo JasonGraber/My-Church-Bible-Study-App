@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { AppView, SermonStudy, UserSettings, DEFAULT_SETTINGS, User } from './types';
 import { getSettings } from './services/storageService';
 import { initializeSession } from './services/authService';
+import { supabase } from './services/supabaseClient';
 import NavBar from './components/NavBar';
 import RecordView from './views/RecordView';
 import StudyDashboard from './views/StudyDashboard';
@@ -42,14 +43,11 @@ const App: React.FC = () => {
         return;
     }
 
-    // Initialize Supabase Session
     const init = async () => {
         try {
             const sessionUser = await initializeSession();
             if (sessionUser) {
-                setUser(sessionUser);
-                setSettings(getSettings());
-                setCurrentView(getSettings().churchName ? AppView.RECORD : AppView.ONBOARDING);
+                handleLogin(sessionUser);
             }
         } catch (e) {
             console.error("Session init failed", e);
@@ -59,17 +57,38 @@ const App: React.FC = () => {
     };
     init();
 
+    // Listen for Auth Changes (e.g. returning from Google OAuth redirect)
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+             setAuthLoading(true);
+             const sessionUser = await initializeSession();
+             if (sessionUser) {
+                 handleLogin(sessionUser);
+             }
+             setAuthLoading(false);
+        } else if (event === 'SIGNED_OUT') {
+            handleLogout();
+        }
+    });
+
+    return () => {
+        authListener.subscription.unsubscribe();
+    };
+
   }, []);
 
   const handleLogin = (loggedInUser: User) => {
     setUser(loggedInUser);
-    const savedSettings = getSettings();
-    setSettings(savedSettings);
+    
+    // Check if user has settings from DB, otherwise fall back to default
+    const userSettings = loggedInUser.settings || getSettings();
+    setSettings({ ...DEFAULT_SETTINGS, ...userSettings });
 
-    if (!savedSettings.churchName) {
-        setCurrentView(AppView.ONBOARDING);
+    // Determine view
+    if (userSettings && userSettings.churchName) {
+         setCurrentView(AppView.RECORD);
     } else {
-        setCurrentView(AppView.RECORD);
+         setCurrentView(AppView.ONBOARDING);
     }
   };
 

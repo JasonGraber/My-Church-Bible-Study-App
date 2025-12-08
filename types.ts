@@ -10,18 +10,6 @@ export enum StudyLength {
   LONG = "30 mins"
 }
 
-export interface User {
-  id: string;
-  email: string;
-  name: string;
-  password?: string; // Stored locally for demo auth
-  avatar?: string;
-  bio?: string;
-  churchName?: string;
-  googleId?: string;
-  friends?: string[]; // List of User IDs
-}
-
 export interface GeoLocation {
   lat: number;
   lng: number;
@@ -38,6 +26,19 @@ export interface UserSettings {
   serviceTimes?: string[]; // e.g. ["09:00", "11:00"]
   geofenceEnabled: boolean;
   sundayReminderEnabled?: boolean;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  password?: string; // Stored locally for demo auth
+  avatar?: string;
+  bio?: string;
+  churchName?: string;
+  googleId?: string;
+  friends?: string[]; // List of User IDs
+  settings?: UserSettings;
 }
 
 export interface DailyStudy {
