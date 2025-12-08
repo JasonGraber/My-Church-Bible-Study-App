@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { User, AppView } from '../types';
-import { loginUser, registerUser, loginWithGoogle } from '../services/authService';
+import { loginUser, registerUser, initiateGoogleLogin } from '../services/authService';
 
 interface AuthViewProps {
   onLogin: (user: User) => void;
@@ -15,78 +15,16 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onShowLegal }) => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   
-  // Custom Google Client ID
-  const [googleClientId, setGoogleClientId] = useState("553002717608-gs6ibvkil8smkej0cnjet44s8d8dvs9f.apps.googleusercontent.com");
-  const [tempClientId, setTempClientId] = useState("");
-  const [isEditingClientId, setIsEditingClientId] = useState(false);
-  
-  // PWA Install State
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
-
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (e: any) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
-  }, []);
-
-  // Initialize Google Sign-In when Client ID changes
-  useEffect(() => {
-    if (!googleClientId) return;
-
-    const handleGoogleResponse = async (response: any) => {
-        try {
-            setIsLoading(true);
-            const user = await loginWithGoogle(response.credential);
-            onLogin(user);
-        } catch (err: any) {
-            setError(err.message || "Google Sign-In Failed");
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // Small timeout to ensure script is loaded and DOM element exists
-    const timer = setTimeout(() => {
-        if ((window as any).google && document.getElementById("googleSignInDiv")) {
-            try {
-                (window as any).google.accounts.id.initialize({
-                    client_id: googleClientId,
-                    callback: handleGoogleResponse
-                });
-                (window as any).google.accounts.id.renderButton(
-                    document.getElementById("googleSignInDiv"),
-                    { theme: "outline", size: "large", width: "100%", text: isLogin ? "signin_with" : "signup_with" }
-                );
-            } catch(e) {
-                console.error("Google Auth Init Failed", e);
-            }
-        }
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [googleClientId, isLogin, onLogin]);
-
-  const handleInstallClick = () => {
-    if (!installPrompt) return;
-    installPrompt.prompt();
-    installPrompt.userChoice.then((choiceResult: any) => {
-      setInstallPrompt(null);
-    });
-  };
-
-  const handleSaveClientId = () => {
-      if (tempClientId.trim()) {
-          setGoogleClientId(tempClientId.trim());
-          setIsEditingClientId(false);
-          // Force re-render of button
-          const div = document.getElementById("googleSignInDiv");
-          if (div) div.innerHTML = "";
+  const handleGoogleLogin = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+          // This will redirect the user away from the app to Google
+          await initiateGoogleLogin();
+      } catch (err: any) {
+          console.error(err);
+          setError("Google sign-in failed. Please try again.");
+          setIsLoading(false);
       }
   };
 
@@ -129,7 +67,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onShowLegal }) => {
             <p className="text-gray-400">Connect with your church. Deepen your faith.</p>
         </div>
 
-        <div className="bg-gray-800 p-8 rounded-2xl border border-gray-700 shadow-xl">
+        <div className="bg-gray-800 p-8 rounded-2xl border border-gray-700 shadow-xl relative">
           <h2 className="text-2xl font-bold text-white mb-6">{isLogin ? "Welcome Back" : "Join the Community"}</h2>
           
           {error && (
@@ -137,50 +75,27 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onShowLegal }) => {
               {error}
             </div>
           )}
-            
-          {/* Google Button Container or Config Input */}
-          {isEditingClientId ? (
-              <div className="bg-gray-900 p-4 rounded-xl border border-dashed border-gray-600 mb-6">
-                  <p className="text-xs text-gray-400 mb-2 font-bold uppercase">Configure Google Sign-In</p>
-                  <input 
-                    type="text" 
-                    placeholder="Paste Google Client ID here"
-                    value={tempClientId}
-                    onChange={(e) => setTempClientId(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-xs text-white focus:border-purple-500 focus:outline-none mb-2"
-                  />
-                  <div className="flex space-x-2">
-                      <button 
-                        onClick={handleSaveClientId}
-                        disabled={!tempClientId}
-                        className="flex-1 bg-purple-600 text-white text-xs font-bold py-2 rounded hover:bg-purple-700 disabled:opacity-50"
-                      >
-                          Save & Reload
-                      </button>
-                      <button 
-                        onClick={() => setIsEditingClientId(false)}
-                        className="flex-1 bg-gray-700 text-gray-300 text-xs font-bold py-2 rounded hover:bg-gray-600"
-                      >
-                          Cancel
-                      </button>
-                  </div>
-              </div>
-          ) : (
-              <div className="mb-4">
-                  <div id="googleSignInDiv" className="w-full min-h-[40px]"></div>
-                  {/* Hidden developer option to change client ID if needed */}
-                  <div className="flex justify-center mt-2 opacity-0 hover:opacity-100 transition-opacity">
-                      <button onClick={() => { setTempClientId(googleClientId); setIsEditingClientId(true); }} className="text-[10px] text-gray-700 hover:text-gray-500">
-                          Edit Client ID
-                      </button>
-                  </div>
-              </div>
-          )}
 
-          <div className="flex items-center my-4">
-            <div className="flex-grow border-t border-gray-700"></div>
-            <span className="flex-shrink-0 mx-4 text-gray-500 text-sm">OR</span>
-            <div className="flex-grow border-t border-gray-700"></div>
+          {/* Google Sign In */}
+          <div className="mb-6">
+              <button 
+                onClick={handleGoogleLogin}
+                className="w-full bg-white text-gray-800 font-bold py-3 rounded-xl border border-gray-300 hover:bg-gray-100 transition-colors flex items-center justify-center relative shadow-sm"
+              >
+                 <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                 </svg>
+                 Sign in with Google
+              </button>
+          </div>
+
+          <div className="flex items-center mb-6">
+              <div className="flex-1 border-t border-gray-700"></div>
+              <span className="px-3 text-gray-500 text-xs uppercase">Or with email</span>
+              <div className="flex-1 border-t border-gray-700"></div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -224,17 +139,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onShowLegal }) => {
               disabled={isLoading}
               className="w-full py-4 rounded-xl bg-purple-600 text-white font-bold text-lg hover:bg-purple-700 transition-colors shadow-lg mt-4 disabled:opacity-50 disabled:cursor-wait"
             >
-              {isLoading ? (
-                  <span className="flex items-center justify-center">
-                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Processing...
-                  </span>
-              ) : (
-                  isLogin ? "Sign In" : "Create Account"
-              )}
+              {isLoading ? "Processing..." : (isLogin ? "Sign In" : "Create Account")}
             </button>
           </form>
 
@@ -255,31 +160,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onShowLegal }) => {
             <span>•</span>
             <button onClick={() => onShowLegal(AppView.TERMS_OF_SERVICE)} className="hover:text-gray-300">Terms of Service</button>
         </div>
-
       </div>
-
-      {/* PWA Install Banner */}
-      {installPrompt && (
-        <div className="absolute bottom-6 left-6 right-6 bg-purple-900 border border-purple-500 p-4 rounded-xl flex items-center justify-between shadow-2xl animate-slide-up z-50">
-            <div className="flex items-center">
-                 <div className="bg-white p-2 rounded-lg mr-3">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-600" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.968 7.968 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z" />
-                    </svg>
-                 </div>
-                 <div>
-                     <p className="font-bold text-white text-sm">Install App</p>
-                     <p className="text-purple-200 text-xs">Add to your home screen</p>
-                 </div>
-            </div>
-            <button 
-                onClick={handleInstallClick}
-                className="bg-white text-purple-900 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-100 transition-colors"
-            >
-                Install
-            </button>
-        </div>
-      )}
     </div>
   );
 };

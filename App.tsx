@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { AppView, SermonStudy, UserSettings, DEFAULT_SETTINGS, User } from './types';
-import { getSettings, getUser } from './services/storageService';
+import { getSettings } from './services/storageService';
+import { initializeSession } from './services/authService';
 import NavBar from './components/NavBar';
 import RecordView from './views/RecordView';
 import StudyDashboard from './views/StudyDashboard';
@@ -21,53 +22,43 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
   const [selectedStudy, setSelectedStudy] = useState<SermonStudy | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   
-  // New: Target user profile ID when navigating to ProfileView
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  
   const [initialRecordAction, setInitialRecordAction] = useState<'UPLOAD_AUDIO' | 'SCAN_NOTES' | 'PASTE_TEXT' | 'SCAN_BULLETIN' | null>(null);
 
   useEffect(() => {
-    // 1. Check for deep links (Priority for external access like OAuth verification)
+    // Check URL Params
     const params = new URLSearchParams(window.location.search);
     const viewParam = params.get('view');
-    
     if (viewParam === 'privacy') {
         setCurrentView(AppView.PRIVACY_POLICY);
+        setAuthLoading(false);
         return; 
     }
     if (viewParam === 'terms') {
         setCurrentView(AppView.TERMS_OF_SERVICE);
+        setAuthLoading(false);
         return;
     }
 
-    // 2. Load initial settings and user
-    const savedUser = getUser();
-    setUser(savedUser);
-
-    if (savedUser) {
-        const savedSettings = getSettings();
-        setSettings(savedSettings);
-
-        if (!savedSettings.churchName) {
-            setCurrentView(AppView.ONBOARDING);
-        } else {
-            setCurrentView(AppView.RECORD);
-        }
-
-        const checkSundayReminder = () => {
-            const now = new Date();
-            const isSunday = now.getDay() === 0;
-            if (isSunday && savedSettings.sundayReminderEnabled && savedSettings.serviceTimes?.length) {
-                if (Notification.permission === "granted") {
-                     new Notification("It's Sunday!", { 
-                         body: `Head to ${savedSettings.churchName || 'church'} soon! Service times: ${savedSettings.serviceTimes.join(', ')}` 
-                     });
-                }
+    // Initialize Supabase Session
+    const init = async () => {
+        try {
+            const sessionUser = await initializeSession();
+            if (sessionUser) {
+                setUser(sessionUser);
+                setSettings(getSettings());
+                setCurrentView(getSettings().churchName ? AppView.RECORD : AppView.ONBOARDING);
             }
-        };
-        if (savedSettings.churchName) checkSundayReminder();
-    }
+        } catch (e) {
+            console.error("Session init failed", e);
+        } finally {
+            setAuthLoading(false);
+        }
+    };
+    init();
+
   }, []);
 
   const handleLogin = (loggedInUser: User) => {
@@ -118,7 +109,6 @@ const App: React.FC = () => {
       }
   };
   
-  // Navigation to Profile
   const handleViewProfile = (userId: string) => {
       setPreviousView(currentView);
       setSelectedUserId(userId);
@@ -131,27 +121,24 @@ const App: React.FC = () => {
       setSelectedUserId(null);
   };
 
-  // Legal Pages Navigation
   const handleShowLegal = (view: AppView.PRIVACY_POLICY | AppView.TERMS_OF_SERVICE) => {
-      setPreviousView(currentView); // Save where we came from
+      setPreviousView(currentView); 
       setCurrentView(view);
   };
 
   const handleLegalBack = () => {
-      // Clear URL params if present so we don't get stuck in a loop on refresh
       if (window.location.search) {
           window.history.replaceState({}, '', window.location.pathname);
       }
-
       if (previousView) {
           setCurrentView(previousView);
           setPreviousView(null);
       } else {
-          // Fallback if no history (e.g. direct link access)
-          // If user is logged in -> Settings, else -> Auth (via Record view redirect logic)
           setCurrentView(user ? AppView.SETTINGS : AppView.RECORD);
       }
   };
+
+  if (authLoading) return <div className="flex h-screen w-screen items-center justify-center bg-gray-900 text-white">Loading...</div>;
 
   if (!user && currentView !== AppView.PRIVACY_POLICY && currentView !== AppView.TERMS_OF_SERVICE) {
     return <AuthView onLogin={handleLogin} onShowLegal={handleShowLegal} />;

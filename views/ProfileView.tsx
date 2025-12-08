@@ -20,9 +20,9 @@ const ProfileView: React.FC<ProfileViewProps> = ({ userId, onBack }) => {
     loadProfile();
   }, [userId]);
 
-  const loadProfile = () => {
-    const user = getUserById(userId);
-    const userPosts = getPostsByUserId(userId);
+  const loadProfile = async () => {
+    const user = await getUserById(userId);
+    const userPosts = await getPostsByUserId(userId);
     const me = getCurrentUser();
 
     setProfileUser(user || null);
@@ -31,10 +31,12 @@ const ProfileView: React.FC<ProfileViewProps> = ({ userId, onBack }) => {
     setLoading(false);
   };
 
-  const handleToggleFriend = () => {
+  const handleToggleFriend = async () => {
     if (!profileUser) return;
-    const updatedMe = toggleFriend(profileUser.id);
-    setCurrentUser(updatedMe); // Update local state to reflect friendship change
+    const updatedMe = await toggleFriend(profileUser.id);
+    if (updatedMe) {
+        setCurrentUser(updatedMe); // Update local state to reflect friendship change
+    }
   };
 
   const handleLike = (post: Post) => {

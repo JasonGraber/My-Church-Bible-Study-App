@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Post, User } from '../types';
 import { getFeed, toggleLikePost, commentOnPost } from '../services/socialService';
@@ -25,7 +24,7 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
 
     const loadData = async () => {
         const feedData = await getFeed();
-        const peopleData = getCommunityUsers();
+        const peopleData = await getCommunityUsers();
         const user = getCurrentUser();
         
         setPosts(feedData);
@@ -48,11 +47,11 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
         }
     };
 
-    const handleSubmitComment = (postId: string) => {
+    const handleSubmitComment = async (postId: string) => {
         if (!commentInput.trim()) return;
         
         try {
-            const updatedPost = commentOnPost(postId, commentInput);
+            const updatedPost = await commentOnPost(postId, commentInput);
             setPosts(prev => prev.map(p => p.id === postId ? updatedPost : p));
             setCommentInput("");
         } catch (e) {
@@ -60,8 +59,8 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
         }
     };
 
-    const handleToggleFriend = (userId: string) => {
-        const updatedUser = toggleFriend(userId);
+    const handleToggleFriend = async (userId: string) => {
+        const updatedUser = await toggleFriend(userId);
         if (updatedUser) {
             setCurrentUser(updatedUser);
         }

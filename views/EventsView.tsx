@@ -14,8 +14,8 @@ const EventsView: React.FC<EventsViewProps> = ({ onScanBulletin }) => {
     loadData();
   }, []);
 
-  const loadData = () => {
-    const savedBulletins = getBulletins();
+  const loadData = async () => {
+    const savedBulletins = await getBulletins();
     setBulletins(savedBulletins);
     
     // Aggregate and sort events

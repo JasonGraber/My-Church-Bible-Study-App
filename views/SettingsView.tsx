@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserSettings, StudyDuration, StudyLength, GeoLocation, DEFAULT_SETTINGS, User, AppView } from '../types';
 import { saveSettings, getSettings, getUser, logoutUser, updateUser } from '../services/storageService';
 import { getCurrentLocation } from '../services/geoService';
@@ -31,6 +31,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editBio, setEditBio] = useState("");
   const [editAvatar, setEditAvatar] = useState("");
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   
   // Search State
   const [searchQuery, setSearchQuery] = useState("");
@@ -63,6 +64,47 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
       updateUser(updatedUser);
       setCurrentUser(updatedUser);
       setIsEditingProfile(false);
+  };
+
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      // Resize logic to keep storage light (client-side compression)
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+              const canvas = document.createElement('canvas');
+              let width = img.width;
+              let height = img.height;
+              const MAX_SIZE = 400; // Resize to max 400px
+
+              if (width > height) {
+                  if (width > MAX_SIZE) {
+                      height *= MAX_SIZE / width;
+                      width = MAX_SIZE;
+                  }
+              } else {
+                  if (height > MAX_SIZE) {
+                      width *= MAX_SIZE / height;
+                      height = MAX_SIZE;
+                  }
+              }
+
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, width, height);
+              // Convert to compressed JPEG base64 (0.8 quality)
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+              setEditAvatar(dataUrl);
+          };
+          img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+      // Clear input so same file can be selected again
+      e.target.value = '';
   };
 
   const setLocation = async () => {
@@ -145,36 +187,73 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
         {/* Profile Section */}
         <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
             {isEditingProfile ? (
-                <div className="space-y-3">
-                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wide">Edit Profile</h3>
+                <div className="space-y-4">
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider border-b border-gray-700 pb-2">Edit Profile</h3>
+                    
+                    {/* Avatar Upload */}
                     <div>
-                        <label className="text-xs text-gray-500">Avatar URL (or keep blank for default)</label>
+                        <label className="text-xs text-gray-500 mb-2 block">Profile Picture</label>
+                        <div className="flex items-center space-x-4 mb-3">
+                            <div className={`h-16 w-16 rounded-full ${editAvatar ? 'bg-black' : 'bg-purple-600'} flex-shrink-0 flex items-center justify-center text-white font-bold text-xl overflow-hidden border border-gray-600 shadow-md`}>
+                                {editAvatar && (editAvatar.startsWith('http') || editAvatar.startsWith('data:')) ? (
+                                     <img src={editAvatar} alt="Preview" className="w-full h-full object-cover" />
+                                ) : (
+                                    editAvatar || currentUser?.name?.charAt(0).toUpperCase() || "U"
+                                )}
+                            </div>
+                            <div className="flex flex-col space-y-2">
+                                <button 
+                                    onClick={() => avatarInputRef.current?.click()} 
+                                    className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-xs border border-gray-600 transition-colors"
+                                >
+                                    Upload Photo
+                                </button>
+                                {editAvatar && (
+                                    <button 
+                                        onClick={() => setEditAvatar("")} 
+                                        className="text-xs text-red-400 hover:text-red-300 text-left"
+                                    >
+                                        Remove
+                                    </button>
+                                )}
+                            </div>
+                            <input 
+                                type="file" 
+                                ref={avatarInputRef} 
+                                onChange={handleAvatarUpload} 
+                                accept="image/*" 
+                                className="hidden" 
+                            />
+                        </div>
+                        <label className="text-[10px] text-gray-500 mb-1 block">Avatar URL (or keep blank for default)</label>
                         <input 
                             type="text" 
-                            value={editAvatar}
+                            value={editAvatar.startsWith('data:') ? '' : editAvatar}
                             onChange={(e) => setEditAvatar(e.target.value)}
-                            placeholder="https://..."
-                            className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
+                            placeholder={editAvatar.startsWith('data:') ? "(Image uploaded)" : "https://..."}
+                            className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-2 text-sm text-white focus:border-purple-500 focus:outline-none disabled:opacity-50"
+                            disabled={editAvatar.startsWith('data:')}
                         />
                     </div>
+
                     <div>
                         <label className="text-xs text-gray-500">Bio</label>
                         <textarea 
                             value={editBio}
                             onChange={(e) => setEditBio(e.target.value)}
                             placeholder="Share a bit about your faith journey..."
-                            className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-2 text-sm text-white focus:border-purple-500 focus:outline-none h-20 resize-none"
+                            className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-2 text-sm text-white focus:border-purple-500 focus:outline-none h-20 resize-none mt-1"
                         />
                     </div>
-                    <div className="flex space-x-2">
-                        <button onClick={handleSaveProfile} className="bg-purple-600 text-white px-3 py-1.5 rounded text-xs font-bold">Save</button>
-                        <button onClick={() => setIsEditingProfile(false)} className="bg-gray-700 text-white px-3 py-1.5 rounded text-xs">Cancel</button>
+                    <div className="flex space-x-2 pt-2">
+                        <button onClick={handleSaveProfile} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors">Save</button>
+                        <button onClick={() => setIsEditingProfile(false)} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-xs transition-colors">Cancel</button>
                     </div>
                 </div>
             ) : (
                 <div className="flex items-center space-x-4">
-                    <div className={`h-14 w-14 rounded-full ${currentUser?.avatar || 'bg-purple-600'} flex-shrink-0 flex items-center justify-center text-white font-bold text-xl overflow-hidden`}>
-                        {currentUser?.avatar?.startsWith('http') ? (
+                    <div className={`h-14 w-14 rounded-full ${currentUser?.avatar || 'bg-purple-600'} flex-shrink-0 flex items-center justify-center text-white font-bold text-xl overflow-hidden shadow-md`}>
+                        {currentUser?.avatar && (currentUser.avatar.startsWith('http') || currentUser.avatar.startsWith('data:')) ? (
                              <img src={currentUser.avatar} alt="av" className="w-full h-full object-cover" />
                         ) : (
                             currentUser?.name?.charAt(0).toUpperCase() || "U"
