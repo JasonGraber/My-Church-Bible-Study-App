@@ -62,6 +62,7 @@ export interface SermonStudy {
   originalAudioDuration: number; // seconds
   days: DailyStudy[];
   isCompleted: boolean;
+  isArchived?: boolean; // New field for soft delete
 }
 
 export interface ChurchEvent {
@@ -99,6 +100,10 @@ export interface Post {
   userName: string;
   userAvatar?: string; // Color code or URL
   studyId?: string; // Linked study
+  studyData?: {
+      title: string;
+      preacher?: string;
+  };
   content: string; // "Just finished this study on Grace..."
   timestamp: string;
   likes: number;

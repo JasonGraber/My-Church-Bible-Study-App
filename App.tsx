@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { AppView, SermonStudy, UserSettings, DEFAULT_SETTINGS, User } from './types';
 import { getSettings } from './services/storageService';
@@ -57,17 +58,34 @@ const App: React.FC = () => {
     };
     init();
 
-    // Listen for Auth Changes (e.g. returning from Google OAuth redirect)
+    // Listen for Auth Changes (e.g. returning from Google OAuth redirect, token refresh)
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_IN' && session) {
-             setAuthLoading(true);
-             const sessionUser = await initializeSession();
-             if (sessionUser) {
-                 handleLogin(sessionUser);
-             }
-             setAuthLoading(false);
+        // console.log("Auth event:", event);
+
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+            if (session) {
+                // Only show loading if we haven't already loaded the user
+                if (!user) setAuthLoading(true);
+                
+                try {
+                    const sessionUser = await initializeSession();
+                    if (sessionUser) {
+                        handleLogin(sessionUser);
+                    }
+                } catch (e) {
+                    console.error("Error refreshing session:", e);
+                } finally {
+                    setAuthLoading(false);
+                }
+            } else {
+                 setAuthLoading(false);
+            }
         } else if (event === 'SIGNED_OUT') {
             handleLogout();
+            setAuthLoading(false);
+        } else {
+            // For other events like INITIAL_SESSION where session might be null
+            setAuthLoading(false);
         }
     });
 
@@ -84,11 +102,13 @@ const App: React.FC = () => {
     const userSettings = loggedInUser.settings || getSettings();
     setSettings({ ...DEFAULT_SETTINGS, ...userSettings });
 
-    // Determine view
-    if (userSettings && userSettings.churchName) {
-         setCurrentView(AppView.RECORD);
-    } else {
+    // Determine view - Only redirect to onboarding if we are currently in a generic view
+    // This prevents redirecting to RecordView if the user was deeplinked or reloading
+    if (!loggedInUser.settings?.churchName && currentView !== AppView.PRIVACY_POLICY && currentView !== AppView.TERMS_OF_SERVICE) {
          setCurrentView(AppView.ONBOARDING);
+    } else if (currentView === AppView.ONBOARDING && loggedInUser.settings?.churchName) {
+        // If they were onboarding but now have settings, send to record
+        setCurrentView(AppView.RECORD);
     }
   };
 
@@ -157,7 +177,10 @@ const App: React.FC = () => {
       }
   };
 
-  if (authLoading) return <div className="flex h-screen w-screen items-center justify-center bg-gray-900 text-white">Loading...</div>;
+  if (authLoading) return <div className="flex h-screen w-screen items-center justify-center bg-gray-900 text-white flex-col space-y-4">
+      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-500"></div>
+      <p className="text-gray-400 text-sm">Loading...</p>
+  </div>;
 
   if (!user && currentView !== AppView.PRIVACY_POLICY && currentView !== AppView.TERMS_OF_SERVICE) {
     return <AuthView onLogin={handleLogin} onShowLegal={handleShowLegal} />;

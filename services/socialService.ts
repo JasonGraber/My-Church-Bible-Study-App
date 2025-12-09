@@ -62,11 +62,13 @@ export const commentOnPost = async (postId: string, text: string): Promise<Post>
 
     await addComment(postId, newComment);
     
-    // Return optimistic update logic is hard without full reload
-    // In real app, we'd refetch the post
-    // For now, return a synthesized post object
-    return {
-        ... (await getFeed()).find(p => p.id === postId)!, // Crude re-fetch
-        comments: [...((await getFeed()).find(p => p.id === postId)?.comments || []), newComment]
-    };
+    // Re-fetch the feed to get the updated post with the new comment from the DB.
+    const updatedFeed = await getFeed();
+    const updatedPost = updatedFeed.find(p => p.id === postId);
+
+    if (!updatedPost) {
+         throw new Error("Post not found after commenting.");
+    }
+
+    return updatedPost;
 };

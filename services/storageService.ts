@@ -62,10 +62,12 @@ export const getStudies = async (): Promise<SermonStudy[]> => {
   const user = getCurrentUser();
   if (!user) return [];
 
+  // Filter for items where is_archived is NOT true (false or null)
   const { data, error } = await supabase
     .from('studies')
     .select('*')
     .eq('user_id', user.id)
+    .neq('is_archived', true) 
     .order('created_at', { ascending: false });
 
   if (error || !data) return [];
@@ -79,8 +81,32 @@ export const getStudies = async (): Promise<SermonStudy[]> => {
       dateRecorded: row.date_recorded,
       originalAudioDuration: row.original_audio_duration,
       days: row.days,
-      isCompleted: row.is_completed
+      isCompleted: row.is_completed,
+      isArchived: row.is_archived
   }));
+};
+
+export const getStudyById = async (id: string): Promise<SermonStudy | null> => {
+    if (!supabase) return null;
+    const { data, error } = await supabase
+        .from('studies')
+        .select('*')
+        .eq('id', id)
+        .single();
+        
+    if (error || !data) return null;
+
+    return {
+      id: data.id,
+      userId: data.user_id,
+      sermonTitle: data.sermon_title,
+      preacher: data.preacher,
+      dateRecorded: data.date_recorded,
+      originalAudioDuration: data.original_audio_duration,
+      days: data.days,
+      isCompleted: data.is_completed,
+      isArchived: data.is_archived
+    };
 };
 
 export const saveStudy = async (study: SermonStudy): Promise<void> => {
@@ -96,7 +122,8 @@ export const saveStudy = async (study: SermonStudy): Promise<void> => {
       date_recorded: study.dateRecorded,
       original_audio_duration: study.originalAudioDuration,
       days: study.days,
-      is_completed: study.isCompleted
+      is_completed: study.isCompleted,
+      is_archived: study.isArchived || false
   };
 
   const { error } = await supabase.from('studies').upsert(payload);
@@ -108,7 +135,30 @@ export const saveStudy = async (study: SermonStudy): Promise<void> => {
 
 export const deleteStudy = async (id: string): Promise<void> => {
     if (!supabase) return;
-    await supabase.from('studies').delete().eq('id', id);
+    // Soft delete: Mark as archived instead of removing
+    await supabase
+        .from('studies')
+        .update({ is_archived: true })
+        .eq('id', id);
+};
+
+export const joinStudy = async (originalStudyId: string): Promise<void> => {
+    const original = await getStudyById(originalStudyId);
+    if (!original) throw new Error("Study not found");
+    
+    const user = getCurrentUser();
+    if (!user) throw new Error("Must be logged in");
+
+    const newStudy: SermonStudy = {
+        ...original,
+        id: crypto.randomUUID(),
+        userId: user.id,
+        isCompleted: false,
+        days: original.days.map(d => ({ ...d, isCompleted: false })),
+        isArchived: false
+    };
+
+    await saveStudy(newStudy);
 };
 
 // --- Bulletins ---
@@ -177,7 +227,7 @@ export const deleteEvent = async (eventId: string): Promise<void> => {
 export const getCommunityPosts = async (): Promise<Post[]> => {
     if (!supabase) return [];
 
-    const { data } = await supabase
+    const { data: postsData } = await supabase
         .from('posts')
         .select(`
             *,
@@ -185,17 +235,43 @@ export const getCommunityPosts = async (): Promise<Post[]> => {
         `)
         .order('created_at', { ascending: false });
 
-    if (!data) return [];
+    if (!postsData) return [];
+
+    // Fetch related study details efficiently
+    const studyIds = postsData
+        .map((p: any) => p.study_id)
+        .filter((id: any) => id); // Filter valid IDs
+    
+    const studyMap: Record<string, {title: string, preacher: string}> = {};
+
+    if (studyIds.length > 0) {
+        // We attempt to fetch titles for these studies. 
+        // Note: RLS might prevent seeing details of some studies if not public, 
+        // but typically shared studies should be accessible or title mirrored.
+        const { data: studiesData } = await supabase
+            .from('studies')
+            .select('id, sermon_title, preacher')
+            .in('id', studyIds);
+            
+        if (studiesData) {
+            studiesData.forEach((s: any) => {
+                studyMap[s.id] = { title: s.sermon_title, preacher: s.preacher };
+            });
+        }
+    }
+
     const user = getCurrentUser();
 
-    return data.map((row: any) => ({
+    return postsData.map((row: any) => ({
         id: row.id,
         userId: row.user_id,
         userName: row.user_name,
         userAvatar: row.user_avatar,
         content: row.content,
         type: row.type,
+        study_id: row.study_id,
         studyId: row.study_id,
+        studyData: studyMap[row.study_id],
         timestamp: row.created_at,
         likes: row.likes || 0,
         isLikedByCurrentUser: (row.liked_by_users || []).includes(user?.id),

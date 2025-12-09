@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { SermonStudy, User } from '../types';
 import { getStudies, deleteStudy } from '../services/storageService';
@@ -21,6 +22,9 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
   const [shareSearch, setShareSearch] = useState("");
   const [sharing, setSharing] = useState(false);
 
+  // Delete Confirmation State
+  const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
+
   const loadStudies = async () => {
       setLoading(true);
       const data = await getStudies();
@@ -32,10 +36,15 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
     loadStudies();
   }, []);
 
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
+  const handleDeleteClick = (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
-      if(confirm("Are you sure you want to delete this study?")) {
-          await deleteStudy(id);
+      setDeleteConfirmationId(id);
+  }
+
+  const confirmDelete = async () => {
+      if (deleteConfirmationId) {
+          await deleteStudy(deleteConfirmationId);
+          setDeleteConfirmationId(null);
           loadStudies();
       }
   }
@@ -162,7 +171,7 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
                              </svg>
                         </button>
                         <button 
-                            onClick={(e) => handleDelete(e, study.id)}
+                            onClick={(e) => handleDeleteClick(e, study.id)}
                             className="text-gray-600 hover:text-red-400 p-1.5 rounded-full hover:bg-gray-700 transition-colors"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -249,6 +258,30 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
             )}
           </button>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmationId && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
+              <div className="bg-gray-800 p-6 rounded-2xl max-w-sm w-full border border-gray-700 shadow-xl scale-100 animate-slide-up sm:animate-none">
+                  <h3 className="text-xl font-bold text-white mb-2">Delete Study?</h3>
+                  <p className="text-gray-400 mb-6 text-sm leading-relaxed">Are you sure you want to remove this study? This action cannot be undone.</p>
+                  <div className="flex space-x-3">
+                      <button 
+                        onClick={() => setDeleteConfirmationId(null)} 
+                        className="flex-1 py-3 bg-gray-700 rounded-xl text-white font-medium hover:bg-gray-600 transition-colors"
+                      >
+                          Cancel
+                      </button>
+                      <button 
+                        onClick={confirmDelete} 
+                        className="flex-1 py-3 bg-red-600 rounded-xl text-white font-bold hover:bg-red-700 transition-colors shadow-lg"
+                      >
+                          Delete
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
 
       {/* Share Modal */}
       {shareModalOpen && studyToShare && (

@@ -81,6 +81,9 @@ create trigger on_auth_user_created
 alter table public.user_settings add column if not exists church_location jsonb;
 alter table public.user_settings add column if not exists service_times text[];
 alter table public.profiles add column if not exists friends text[];
+
+-- 7. Soft Delete support for studies
+alter table public.studies add column if not exists is_archived boolean default false;
 `;
 
 const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowLegal, onViewProfile }) => {

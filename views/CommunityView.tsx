@@ -1,7 +1,10 @@
+
+
 import React, { useState, useEffect } from 'react';
 import { Post, User } from '../types';
 import { getFeed, toggleLikePost, commentOnPost } from '../services/socialService';
 import { getCommunityUsers, toggleFriend, getCurrentUser } from '../services/authService';
+import { joinStudy } from '../services/storageService';
 
 interface CommunityViewProps {
     onViewProfile?: (userId: string) => void;
@@ -17,6 +20,10 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
     // Comment State
     const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
     const [commentInput, setCommentInput] = useState("");
+    const [submittingMap, setSubmittingMap] = useState<Record<string, boolean>>({});
+    
+    // Join Study State
+    const [joiningMap, setJoiningMap] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         loadData();
@@ -48,14 +55,18 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
     };
 
     const handleSubmitComment = async (postId: string) => {
-        if (!commentInput.trim()) return;
+        if (!commentInput.trim() || submittingMap[postId]) return;
         
+        setSubmittingMap(prev => ({...prev, [postId]: true}));
+
         try {
             const updatedPost = await commentOnPost(postId, commentInput);
             setPosts(prev => prev.map(p => p.id === postId ? updatedPost : p));
             setCommentInput("");
         } catch (e) {
             alert("Failed to post comment");
+        } finally {
+            setSubmittingMap(prev => ({...prev, [postId]: false}));
         }
     };
 
@@ -63,6 +74,20 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
         const updatedUser = await toggleFriend(userId);
         if (updatedUser) {
             setCurrentUser(updatedUser);
+        }
+    };
+
+    const handleJoinStudy = async (studyId: string) => {
+        if (joiningMap[studyId]) return;
+        setJoiningMap(prev => ({ ...prev, [studyId]: true }));
+        try {
+            await joinStudy(studyId);
+            alert("Study joined! It has been added to your dashboard.");
+        } catch (e) {
+            console.error(e);
+            alert("Failed to join study. It might have been deleted or archived.");
+        } finally {
+            setJoiningMap(prev => ({ ...prev, [studyId]: false }));
         }
     };
 
@@ -163,16 +188,54 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
                                     <div className="px-4 pb-2">
                                         <p className="text-gray-200 text-sm leading-relaxed mb-3">{post.content}</p>
                                         
-                                        {post.studyId && (
-                                            <div className="bg-gray-800 rounded-lg p-3 mb-2 border border-gray-700 flex items-center">
-                                                <div className="h-10 w-10 bg-purple-900/50 rounded flex items-center justify-center mr-3 text-purple-400">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                        {post.studyId && post.studyData && (
+                                            <div className="mt-3 bg-gray-800 rounded-xl p-4 border border-gray-700 hover:border-purple-500/50 transition-all group relative overflow-hidden">
+                                                {/* Background decorative element */}
+                                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24 text-purple-500 transform rotate-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                                                     </svg>
                                                 </div>
-                                                <div>
-                                                    <p className="text-xs font-bold text-purple-300">Bible Study Plan</p>
-                                                    <p className="text-xs text-gray-500">Tap to view details</p>
+                                                
+                                                <div className="flex items-start justify-between relative z-10">
+                                                    <div className="flex items-center space-x-3">
+                                                        <div className="h-12 w-12 bg-purple-900/50 rounded-lg flex items-center justify-center text-purple-400 border border-purple-500/30 flex-shrink-0">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                                            </svg>
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <p className="text-xs font-bold text-purple-400 uppercase tracking-wide mb-0.5">Bible Study Plan</p>
+                                                            <h3 className="text-white font-bold leading-tight truncate">{post.studyData.title}</h3>
+                                                            {post.studyData.preacher && <p className="text-xs text-gray-500 italic mt-0.5 truncate">{post.studyData.preacher}</p>}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="mt-4 flex items-center justify-between relative z-10 border-t border-gray-700/50 pt-3">
+                                                    <span className="text-xs text-gray-400">Tap to preview</span>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); handleJoinStudy(post.studyId!); }}
+                                                        disabled={joiningMap[post.studyId!]}
+                                                        className="bg-white text-gray-900 text-xs font-bold px-4 py-1.5 rounded-full hover:bg-gray-200 transition-colors shadow-sm disabled:opacity-70 flex items-center"
+                                                    >
+                                                        {joiningMap[post.studyId!] ? (
+                                                            <>
+                                                                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-gray-900" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                </svg>
+                                                                Joining...
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                                                </svg>
+                                                                Join Study
+                                                            </>
+                                                        )}
+                                                    </button>
                                                 </div>
                                             </div>
                                         )}
@@ -235,17 +298,25 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
                                                     value={commentInput}
                                                     onChange={(e) => setCommentInput(e.target.value)}
                                                     placeholder="Write a comment..." 
-                                                    className="flex-1 bg-gray-800 border border-gray-700 rounded-full px-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+                                                    disabled={submittingMap[post.id]}
+                                                    className="flex-1 bg-gray-800 border border-gray-700 rounded-full px-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500 disabled:opacity-50"
                                                     onKeyDown={(e) => e.key === 'Enter' && handleSubmitComment(post.id)}
                                                 />
                                                 <button 
                                                     onClick={() => handleSubmitComment(post.id)}
-                                                    disabled={!commentInput.trim()}
-                                                    className="bg-purple-600 text-white p-2 rounded-full disabled:opacity-50"
+                                                    disabled={!commentInput.trim() || submittingMap[post.id]}
+                                                    className="bg-purple-600 text-white p-2 rounded-full disabled:opacity-50 hover:bg-purple-700 transition-colors"
                                                 >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" />
-                                                    </svg>
+                                                    {submittingMap[post.id] ? (
+                                                        <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        </svg>
+                                                    ) : (
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" />
+                                                        </svg>
+                                                    )}
                                                 </button>
                                             </div>
                                         </div>
