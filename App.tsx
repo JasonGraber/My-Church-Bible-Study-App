@@ -1,8 +1,7 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { AppView, SermonStudy, UserSettings, DEFAULT_SETTINGS, User } from './types';
-import { getSettings } from './services/storageService';
+// Fixed: Imported getUser instead of getCurrentUser (which is not exported by name from storageService)
+import { getSettings, getUser } from './services/storageService';
 import { initializeSession } from './services/authService';
 import { supabase } from './services/supabaseClient';
 import NavBar from './components/NavBar';
@@ -64,8 +63,15 @@ const App: React.FC = () => {
 
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             if (session) {
-                // Only show loading if we haven't already loaded the user
-                if (!user) setAuthLoading(true);
+                // IMPORTANT: Check cached user to avoid flashing loading screen on token refresh or app resume
+                // The 'user' state variable in this closure is stale (always null), so we use getUser()
+                // Fixed: Use getUser() instead of getCurrentUser()
+                const cachedUser = getUser();
+                
+                // Only show blocking loader if we don't have a user cached
+                if (!cachedUser) {
+                    setAuthLoading(true);
+                }
                 
                 try {
                     const sessionUser = await initializeSession();
@@ -104,12 +110,15 @@ const App: React.FC = () => {
 
     // Determine view - Only redirect to onboarding if we are currently in a generic view
     // This prevents redirecting to RecordView if the user was deeplinked or reloading
-    if (!loggedInUser.settings?.churchName && currentView !== AppView.PRIVACY_POLICY && currentView !== AppView.TERMS_OF_SERVICE) {
+    // Note: accessing currentView here relies on closure, which might be stale on auth refresh.
+    // Ideally we assume if they have settings, they are good.
+    if (!loggedInUser.settings?.churchName) {
+         // If no church set, force onboarding unless viewing legal docs
+         if (window.location.search.includes('view=')) return; 
          setCurrentView(AppView.ONBOARDING);
-    } else if (currentView === AppView.ONBOARDING && loggedInUser.settings?.churchName) {
-        // If they were onboarding but now have settings, send to record
-        setCurrentView(AppView.RECORD);
-    }
+    } 
+    // If they were onboarding but now have settings (e.g. another device updated), likely should go to record, 
+    // but handled via user interaction usually.
   };
 
   const handleLogout = () => {

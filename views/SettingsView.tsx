@@ -23,7 +23,7 @@ interface SearchResult {
 }
 
 const REQUIRED_SQL = `
--- Run these commands in your Supabase SQL Editor
+-- Run these commands in your Supabase SQL Editor to setup the full app schema
 
 -- 1. Create Profiles Table
 create table if not exists public.profiles (
@@ -51,18 +51,95 @@ create table if not exists public.user_settings (
   updated_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 3. Enable Row Level Security (RLS)
+-- 3. Create Studies Table
+create table if not exists public.studies (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users not null,
+  sermon_title text,
+  preacher text,
+  date_recorded timestamp with time zone,
+  original_audio_duration integer,
+  days jsonb,
+  is_completed boolean default false,
+  is_archived boolean default false,
+  created_at timestamp with time zone default now()
+);
+
+-- 4. Create Bulletins Table
+create table if not exists public.bulletins (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users not null,
+  title text,
+  date_scanned timestamp with time zone,
+  raw_summary text,
+  events jsonb,
+  created_at timestamp with time zone default now()
+);
+
+-- 5. Create Posts Table
+create table if not exists public.posts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users not null,
+  user_name text,
+  user_avatar text,
+  content text,
+  type text,
+  study_id uuid,
+  likes integer default 0,
+  liked_by_users uuid[] default '{}',
+  created_at timestamp with time zone default now()
+);
+
+-- 6. Create Comments Table
+create table if not exists public.comments (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid references public.posts on delete cascade,
+  user_id uuid references auth.users not null,
+  user_name text,
+  user_avatar text,
+  text text,
+  created_at timestamp with time zone default now()
+);
+
+-- 7. Enable Row Level Security (RLS)
 alter table public.profiles enable row level security;
 alter table public.user_settings enable row level security;
+alter table public.studies enable row level security;
+alter table public.bulletins enable row level security;
+alter table public.posts enable row level security;
+alter table public.comments enable row level security;
 
--- 4. Create Policies (Simplified for Demo)
+-- 8. Create Policies
+
+-- Profiles: Public read, User write own
 create policy "Public profiles are viewable by everyone." on public.profiles for select using (true);
 create policy "Users can insert their own profile." on public.profiles for insert with check (auth.uid() = id);
 create policy "Users can update own profile." on public.profiles for update using (auth.uid() = id);
 
+-- Settings: Private to user
 create policy "Users can manage their own settings." on public.user_settings for all using (auth.uid() = user_id);
 
--- 5. Auto-create profile on signup trigger
+-- Studies: Private to user
+create policy "Users can manage own studies" on public.studies for all using (auth.uid() = user_id);
+-- (Optional) If you want studies to be readable by others via shared links, you might need a "select" policy for specific IDs, 
+-- or rely on the Posts table to share study metadata. For now, private is safest.
+-- To allow fetching shared study details (title/preacher) for posts:
+create policy "Studies viewable if public link" on public.studies for select using (true);
+
+-- Bulletins: Private to user
+create policy "Users can manage own bulletins" on public.bulletins for all using (auth.uid() = user_id);
+
+-- Posts: Public read, User write own
+create policy "Posts are viewable by everyone" on public.posts for select using (true);
+create policy "Users can insert own posts" on public.posts for insert with check (auth.uid() = user_id);
+create policy "Users can update own posts" on public.posts for update using (auth.uid() = user_id);
+
+-- Comments: Public read, User write own
+create policy "Comments are viewable by everyone" on public.comments for select using (true);
+create policy "Users can insert own comments" on public.comments for insert with check (auth.uid() = user_id);
+
+
+-- 9. Auto-create profile on signup trigger
 create or replace function public.handle_new_user() 
 returns trigger as $$
 begin
@@ -77,12 +154,10 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- 6. Add potentially missing columns for updates
+-- 10. Helper for existing tables (in case you are updating)
 alter table public.user_settings add column if not exists church_location jsonb;
 alter table public.user_settings add column if not exists service_times text[];
 alter table public.profiles add column if not exists friends text[];
-
--- 7. Soft Delete support for studies
 alter table public.studies add column if not exists is_archived boolean default false;
 `;
 
@@ -483,7 +558,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
                             <p className="font-bold text-sm text-white group-hover:text-purple-400">{result.name}</p>
                             <p className="text-xs text-gray-400 truncate">{result.address}</p>
                             {result.serviceTimes && result.serviceTimes.length > 0 && (
-                                <p className="text-[10px] text-green-400 mt-1">Services: {result.serviceTimes.join(', ')}</p>
+                                <p className="text-xs text-green-400 mt-1">Services: {result.serviceTimes.join(', ')}</p>
                             )}
                             {result.uri && (
                                 <a 

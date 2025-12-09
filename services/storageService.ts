@@ -1,3 +1,5 @@
+
+
 import { UserSettings, SermonStudy, DEFAULT_SETTINGS, Bulletin, Post, Comment } from '../types';
 import { getCurrentUser, updateUser } from './authService';
 import { supabase } from './supabaseClient';
@@ -56,57 +58,72 @@ export const saveSettings = (settings: UserSettings): void => {
 
 export { getCurrentUser as getUser, logout as logoutUser, updateUser, getUserById } from './authService';
 
+// --- Helper for Mapping ---
+const mapStudyFromDB = (row: any): SermonStudy => ({
+  id: row.id,
+  userId: row.user_id,
+  sermonTitle: row.sermon_title,
+  preacher: row.preacher,
+  dateRecorded: row.date_recorded,
+  originalAudioDuration: row.original_audio_duration,
+  days: row.days || [], // Ensure array
+  isCompleted: row.is_completed,
+  isArchived: row.is_archived || false
+});
+
 // --- Studies (Supabase) ---
 export const getStudies = async (): Promise<SermonStudy[]> => {
   if (!supabase) return [];
   const user = getCurrentUser();
   if (!user) return [];
 
-  // Filter for items where is_archived is NOT true (false or null)
-  const { data, error } = await supabase
-    .from('studies')
-    .select('*')
-    .eq('user_id', user.id)
-    .neq('is_archived', true) 
-    .order('created_at', { ascending: false });
+  try {
+    // Attempt standard query with Archive filter
+    const { data, error } = await supabase
+      .from('studies')
+      .select('*')
+      .eq('user_id', user.id)
+      .neq('is_archived', true) 
+      .order('created_at', { ascending: false });
 
-  if (error || !data) return [];
-
-  // Map snake_case to camelCase
-  return data.map((row: any) => ({
-      id: row.id,
-      userId: row.user_id,
-      sermonTitle: row.sermon_title,
-      preacher: row.preacher,
-      dateRecorded: row.date_recorded,
-      originalAudioDuration: row.original_audio_duration,
-      days: row.days,
-      isCompleted: row.is_completed,
-      isArchived: row.is_archived
-  }));
+    if (error) throw error;
+    if (!data) return [];
+    
+    return data.map(mapStudyFromDB);
+  } catch (err: any) {
+    // Check if error is due to missing column (e.g. Code 42703 in Postgres)
+    if (err.message?.includes('is_archived') || err.code === '42703' || err.code === 'PGRST204') {
+        console.warn("is_archived column missing, falling back to basic query.");
+        const { data } = await supabase
+            .from('studies')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+            
+        if (!data) return [];
+        return data.map(mapStudyFromDB);
+    }
+    
+    console.error("Error fetching studies:", err);
+    return [];
+  }
 };
 
 export const getStudyById = async (id: string): Promise<SermonStudy | null> => {
     if (!supabase) return null;
-    const { data, error } = await supabase
-        .from('studies')
-        .select('*')
-        .eq('id', id)
-        .single();
-        
-    if (error || !data) return null;
-
-    return {
-      id: data.id,
-      userId: data.user_id,
-      sermonTitle: data.sermon_title,
-      preacher: data.preacher,
-      dateRecorded: data.date_recorded,
-      originalAudioDuration: data.original_audio_duration,
-      days: data.days,
-      isCompleted: data.is_completed,
-      isArchived: data.is_archived
-    };
+    try {
+      const { data, error } = await supabase
+          .from('studies')
+          .select('*')
+          .eq('id', id)
+          .single();
+          
+      if (error || !data) return null;
+      return mapStudyFromDB(data);
+    } catch (e) {
+      console.error("Error fetching study by id:", e);
+      return null;
+    }
 };
 
 export const saveStudy = async (study: SermonStudy): Promise<void> => {
@@ -114,7 +131,7 @@ export const saveStudy = async (study: SermonStudy): Promise<void> => {
   const user = getCurrentUser();
   if (!user) throw new Error("User must be logged in to save study.");
 
-  const payload = {
+  const payload: any = {
       id: study.id, // upsert uses ID
       user_id: user.id,
       sermon_title: study.sermonTitle,
@@ -128,18 +145,36 @@ export const saveStudy = async (study: SermonStudy): Promise<void> => {
 
   const { error } = await supabase.from('studies').upsert(payload);
   if (error) {
-      console.error("Supabase Save Error:", error);
-      throw new Error("Failed to save study to database: " + error.message);
+       // Fallback: If is_archived fails, try saving without it
+       if (error.message?.includes('is_archived') || error.code === '42703') {
+           delete payload.is_archived;
+           const { error: retryError } = await supabase.from('studies').upsert(payload);
+           if (retryError) throw retryError;
+           return;
+       }
+       console.error("Supabase Save Error:", error);
+       throw new Error("Failed to save study to database: " + error.message);
   }
 };
 
 export const deleteStudy = async (id: string): Promise<void> => {
     if (!supabase) return;
-    // Soft delete: Mark as archived instead of removing
-    await supabase
-        .from('studies')
-        .update({ is_archived: true })
-        .eq('id', id);
+    try {
+        // Soft delete: Mark as archived instead of removing
+        const { error } = await supabase
+            .from('studies')
+            .update({ is_archived: true })
+            .eq('id', id);
+            
+        if (error) throw error;
+    } catch (err: any) {
+        // Fallback to hard delete if column missing
+        if (err.message?.includes('is_archived') || err.code === '42703') {
+             await supabase.from('studies').delete().eq('id', id);
+        } else {
+            console.error("Error deleting study:", err);
+        }
+    }
 };
 
 export const joinStudy = async (originalStudyId: string): Promise<void> => {
@@ -227,7 +262,7 @@ export const deleteEvent = async (eventId: string): Promise<void> => {
 export const getCommunityPosts = async (): Promise<Post[]> => {
     if (!supabase) return [];
 
-    const { data: postsData } = await supabase
+    const { data: postsData, error } = await supabase
         .from('posts')
         .select(`
             *,
@@ -235,6 +270,10 @@ export const getCommunityPosts = async (): Promise<Post[]> => {
         `)
         .order('created_at', { ascending: false });
 
+    if (error) {
+        console.error("Error loading posts:", error);
+        return [];
+    }
     if (!postsData) return [];
 
     // Fetch related study details efficiently
