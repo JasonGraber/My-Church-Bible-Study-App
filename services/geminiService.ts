@@ -1,3 +1,5 @@
+
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { SermonStudy, UserSettings, StudyLength, Bulletin } from '../types';
 import { getCurrentUser } from './authService';
@@ -121,9 +123,11 @@ export const processBulletin = async (images: Blob[]): Promise<Bulletin> => {
   if (!text) throw new Error("Failed to process bulletin");
 
   const data = JSON.parse(text);
+  const user = getCurrentUser();
 
   return {
     id: crypto.randomUUID(),
+    userId: user?.id || 'anonymous',
     dateScanned: new Date().toISOString(),
     title: data.title,
     events: (data.events || []).map((e: any) => ({

@@ -124,26 +124,6 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
             {/* Content */}
             {activeTab === 'feed' ? (
                 <>
-                     {/* Stories / Events Highlight Bar */}
-                    <div className="px-6 py-4 overflow-x-auto whitespace-nowrap no-scrollbar space-x-3 border-b border-gray-800 bg-gray-900">
-                        <div className="inline-flex flex-col items-center space-y-1">
-                            <div className="w-14 h-14 rounded-full border-2 border-purple-500 p-0.5">
-                                <div className="w-full h-full bg-gray-700 rounded-full flex items-center justify-center text-xl">➕</div>
-                            </div>
-                            <span className="text-[10px] text-gray-400">Add Story</span>
-                        </div>
-                        {['Youth Retreat', 'Worship Night', 'Picnic', 'Baptism'].map((ev, i) => (
-                            <div key={i} className="inline-flex flex-col items-center space-y-1">
-                                <div className="w-14 h-14 rounded-full border-2 border-green-500 p-0.5">
-                                    <div className={`w-full h-full rounded-full flex items-center justify-center text-xs font-bold text-gray-900 bg-gradient-to-br from-green-300 to-green-600`}>
-                                        {ev[0]}
-                                    </div>
-                                </div>
-                                <span className="text-[10px] text-gray-400">{ev}</span>
-                            </div>
-                        ))}
-                    </div>
-
                     {/* Feed */}
                     {loading ? (
                         <div className="p-8 text-center text-gray-500">Loading feed...</div>

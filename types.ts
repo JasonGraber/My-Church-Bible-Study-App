@@ -1,4 +1,5 @@
 
+
 export enum StudyDuration {
   FIVE_DAY = 5,
   SEVEN_DAY = 7,
@@ -74,6 +75,7 @@ export interface ChurchEvent {
 
 export interface Bulletin {
   id: string;
+  userId: string;
   dateScanned: string;
   title: string; 
   events: ChurchEvent[];

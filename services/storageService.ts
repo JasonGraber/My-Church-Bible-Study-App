@@ -1,31 +1,57 @@
-
 import { UserSettings, SermonStudy, DEFAULT_SETTINGS, Bulletin, Post, Comment } from '../types';
 import { getCurrentUser, updateUser } from './authService';
 import { supabase } from './supabaseClient';
 
 const SETTINGS_KEY_PREFIX = 'sermon_scribe_settings_';
 
-// --- Settings (Keep Local for Speed/Simplicity or move to Profile) ---
-// For now, let's keep settings local to device as they are often device-specific (like Permissions)
+// --- Settings ---
 export const getSettings = (): UserSettings => {
   const user = getCurrentUser();
-  if (!user) return DEFAULT_SETTINGS;
-
+  
+  // 1. Get Local Storage (Always serves as a fallback or base)
+  let localSettings = DEFAULT_SETTINGS;
   try {
-    const stored = localStorage.getItem(SETTINGS_KEY_PREFIX + user.id);
-    if (!stored) return DEFAULT_SETTINGS;
-    
-    const parsed = JSON.parse(stored);
-    return { ...DEFAULT_SETTINGS, ...parsed };
+    const stored = user ? localStorage.getItem(SETTINGS_KEY_PREFIX + user.id) : null;
+    if (stored) {
+        localSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+    }
   } catch (e) {
-    return DEFAULT_SETTINGS;
+    console.error("Error reading local settings", e);
   }
+
+  // 2. Merge Cloud Settings if available
+  // We prefer cloud values, but if cloud is missing a value (undefined/null), we keep the local value.
+  // This allows us to maintain data like 'churchLocation' locally even if the DB column is missing.
+  if (user?.settings) {
+       return {
+           studyDuration: user.settings.studyDuration ?? localSettings.studyDuration,
+           studyLength: user.settings.studyLength ?? localSettings.studyLength,
+           supportingReferencesCount: user.settings.supportingReferencesCount ?? localSettings.supportingReferencesCount,
+           notificationTime: user.settings.notificationTime ?? localSettings.notificationTime,
+           
+           churchLocation: user.settings.churchLocation ?? localSettings.churchLocation,
+           churchName: user.settings.churchName ?? localSettings.churchName,
+           serviceTimes: user.settings.serviceTimes ?? localSettings.serviceTimes,
+           
+           geofenceEnabled: user.settings.geofenceEnabled ?? localSettings.geofenceEnabled,
+           sundayReminderEnabled: user.settings.sundayReminderEnabled ?? localSettings.sundayReminderEnabled
+       };
+  }
+
+  // 3. Fallback to local only
+  return localSettings;
 };
 
 export const saveSettings = (settings: UserSettings): void => {
   const user = getCurrentUser();
   if (!user) return;
+  
+  // 1. Save Local (Backup/Latency/Offline support)
   localStorage.setItem(SETTINGS_KEY_PREFIX + user.id, JSON.stringify(settings));
+
+  // 2. Save Cloud (Sync to Supabase Profile)
+  const updatedUser = { ...user, settings };
+  updateUser(updatedUser).catch(err => console.error("Failed to sync settings to cloud", err));
 };
 
 export { getCurrentUser as getUser, logout as logoutUser, updateUser, getUserById } from './authService';
@@ -88,16 +114,20 @@ export const deleteStudy = async (id: string): Promise<void> => {
 // --- Bulletins ---
 export const getBulletins = async (): Promise<Bulletin[]> => {
     if (!supabase) return [];
+    const user = getCurrentUser();
+    if (!user) return [];
     
     const { data } = await supabase
         .from('bulletins')
         .select('*')
+        .eq('user_id', user.id) // Filter by user
         .order('created_at', { ascending: false });
         
     if (!data) return [];
     
     return data.map((row: any) => ({
         id: row.id,
+        userId: row.user_id,
         dateScanned: row.date_scanned,
         title: row.title,
         events: row.events,
@@ -107,9 +137,12 @@ export const getBulletins = async (): Promise<Bulletin[]> => {
 
 export const saveBulletin = async (bulletin: Bulletin): Promise<void> => {
     if (!supabase) return;
+    const user = getCurrentUser();
+    if (!user) throw new Error("User required to save bulletin");
     
     const payload = {
         id: bulletin.id,
+        user_id: user.id,
         title: bulletin.title,
         date_scanned: bulletin.dateScanned,
         raw_summary: bulletin.rawSummary,
@@ -122,6 +155,7 @@ export const saveBulletin = async (bulletin: Bulletin): Promise<void> => {
 
 export const deleteBulletin = async (id: string): Promise<void> => {
     if (!supabase) return;
+    // RLS should handle user check, but good practice to allow delete
     await supabase.from('bulletins').delete().eq('id', id);
 };
 

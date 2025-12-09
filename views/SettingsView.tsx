@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { UserSettings, StudyDuration, StudyLength, GeoLocation, DEFAULT_SETTINGS, User, AppView } from '../types';
 import { saveSettings, getSettings, getUser, logoutUser, updateUser } from '../services/storageService';
@@ -225,15 +226,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
                                 className="hidden" 
                             />
                         </div>
-                        <label className="text-[10px] text-gray-500 mb-1 block">Avatar URL (or keep blank for default)</label>
-                        <input 
-                            type="text" 
-                            value={editAvatar.startsWith('data:') ? '' : editAvatar}
-                            onChange={(e) => setEditAvatar(e.target.value)}
-                            placeholder={editAvatar.startsWith('data:') ? "(Image uploaded)" : "https://..."}
-                            className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-2 text-sm text-white focus:border-purple-500 focus:outline-none disabled:opacity-50"
-                            disabled={editAvatar.startsWith('data:')}
-                        />
                     </div>
 
                     <div>

@@ -1,11 +1,10 @@
-
 import { User } from '../types';
 import { supabase } from './supabaseClient';
 
 // Cache current user in memory for sync access in UI components
 let currentUserCache: User | null = null;
 
-const mapSupabaseUser = (sbUser: any, profile: any): User => {
+const mapSupabaseUser = (sbUser: any, profile: any, settings: any): User => {
     return {
         id: sbUser.id,
         email: sbUser.email || '',
@@ -14,16 +13,16 @@ const mapSupabaseUser = (sbUser: any, profile: any): User => {
         bio: profile?.bio || '',
         friends: profile?.friends || [],
         googleId: sbUser.app_metadata?.provider === 'google' ? 'linked' : undefined,
-        settings: profile ? {
-            churchName: profile.church_name,
-            churchLocation: profile.church_location,
-            studyDuration: profile.study_duration,
-            studyLength: profile.study_length,
-            supportingReferencesCount: profile.supporting_references_count,
-            notificationTime: profile.notification_time,
-            serviceTimes: profile.service_times,
-            geofenceEnabled: profile.geofence_enabled,
-            sundayReminderEnabled: profile.sunday_reminder_enabled
+        settings: settings ? {
+            churchName: settings.church_name,
+            churchLocation: settings.church_location,
+            studyDuration: settings.study_duration,
+            studyLength: settings.study_length,
+            supportingReferencesCount: settings.supporting_references_count,
+            notificationTime: settings.notification_time,
+            serviceTimes: settings.service_times,
+            geofenceEnabled: settings.geofence_enabled,
+            sundayReminderEnabled: settings.sunday_reminder_enabled
         } : undefined
     };
 };
@@ -39,8 +38,15 @@ export const initializeSession = async (): Promise<User | null> => {
             .select('*')
             .eq('id', session.user.id)
             .single();
+        
+        // Fetch settings from user_settings table
+        const { data: settings } = await supabase
+            .from('user_settings')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .single();
             
-        const user = mapSupabaseUser(session.user, profile);
+        const user = mapSupabaseUser(session.user, profile, settings);
         currentUserCache = user;
         return user;
     }
@@ -90,7 +96,13 @@ export const loginUser = async (email: string, password: string): Promise<User> 
             .eq('id', data.user.id)
             .single();
 
-        const user = mapSupabaseUser(data.user, profile);
+        const { data: settings } = await supabase
+            .from('user_settings')
+            .select('*')
+            .eq('user_id', data.user.id)
+            .single();
+
+        const user = mapSupabaseUser(data.user, profile, settings);
         currentUserCache = user;
         return user;
     }
@@ -100,10 +112,13 @@ export const loginUser = async (email: string, password: string): Promise<User> 
 export const initiateGoogleLogin = async (): Promise<void> => {
     if (!supabase) throw new Error("Supabase not configured");
 
+    const redirectUrl = window.location.origin;
+    console.log("Initiating Google Login with redirect:", redirectUrl);
+
     const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-            redirectTo: window.location.origin,
+            redirectTo: redirectUrl,
             skipBrowserRedirect: true // We will handle the redirect manually to ensure it works
         }
     });
@@ -147,19 +162,48 @@ export const getUserById = async (id: string): Promise<User | undefined> => {
 export const updateUser = async (updatedUser: User): Promise<void> => {
     if (!supabase) return;
     
-    const { error } = await supabase
+    const profilePayload: any = {
+        name: updatedUser.name,
+        bio: updatedUser.bio,
+        avatar: updatedUser.avatar,
+        friends: updatedUser.friends
+    };
+
+    const { error: profileError } = await supabase
         .from('profiles')
-        .update({
-            name: updatedUser.name,
-            bio: updatedUser.bio,
-            avatar: updatedUser.avatar,
-            friends: updatedUser.friends
-        })
+        .update(profilePayload)
         .eq('id', updatedUser.id);
         
-    if (!error) {
-        currentUserCache = updatedUser;
+    if (profileError) {
+        console.error("Error updating profile:", profileError.message);
     }
+
+    if (updatedUser.settings) {
+        // Exclude church_location and service_times to prevent schema errors if columns missing
+        const settingsPayload = {
+            user_id: updatedUser.id,
+            church_name: updatedUser.settings.churchName,
+            // church_location: updatedUser.settings.churchLocation, 
+            study_duration: updatedUser.settings.studyDuration,
+            study_length: updatedUser.settings.studyLength,
+            supporting_references_count: updatedUser.settings.supportingReferencesCount,
+            notification_time: updatedUser.settings.notificationTime,
+            // service_times: updatedUser.settings.serviceTimes,
+            geofence_enabled: updatedUser.settings.geofenceEnabled,
+            sunday_reminder_enabled: updatedUser.settings.sundayReminderEnabled
+        };
+
+        const { error: settingsError } = await supabase
+            .from('user_settings')
+            .upsert(settingsPayload, { onConflict: 'user_id' });
+            
+        if (settingsError) {
+            // Log full object to see details if message is generic
+            console.error("Error updating user settings:", JSON.stringify(settingsError));
+        }
+    }
+    
+    currentUserCache = updatedUser;
 };
 
 export const logout = async () => {
