@@ -22,6 +22,67 @@ interface SearchResult {
   serviceTimes?: string[];
 }
 
+const REQUIRED_SQL = `
+-- Run these commands in your Supabase SQL Editor
+
+-- 1. Create Profiles Table
+create table if not exists public.profiles (
+  id uuid references auth.users on delete cascade not null primary key,
+  email text,
+  name text,
+  avatar text,
+  bio text,
+  friends text[] default '{}'::text[],
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 2. Create User Settings Table
+create table if not exists public.user_settings (
+  user_id uuid references auth.users on delete cascade not null primary key,
+  church_name text,
+  church_location jsonb,
+  study_duration integer,
+  study_length text,
+  supporting_references_count integer,
+  notification_time text,
+  service_times text[],
+  geofence_enabled boolean,
+  sunday_reminder_enabled boolean,
+  updated_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- 3. Enable Row Level Security (RLS)
+alter table public.profiles enable row level security;
+alter table public.user_settings enable row level security;
+
+-- 4. Create Policies (Simplified for Demo)
+create policy "Public profiles are viewable by everyone." on public.profiles for select using (true);
+create policy "Users can insert their own profile." on public.profiles for insert with check (auth.uid() = id);
+create policy "Users can update own profile." on public.profiles for update using (auth.uid() = id);
+
+create policy "Users can manage their own settings." on public.user_settings for all using (auth.uid() = user_id);
+
+-- 5. Auto-create profile on signup trigger
+create or replace function public.handle_new_user() 
+returns trigger as $$
+begin
+  insert into public.profiles (id, email, name, avatar)
+  values (new.id, new.email, new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'avatar_url');
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- 6. Add potentially missing columns for updates
+alter table public.user_settings add column if not exists church_location jsonb;
+alter table public.user_settings add column if not exists service_times text[];
+alter table public.profiles add column if not exists friends text[];
+`;
+
 const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowLegal, onViewProfile }) => {
   // Initialize from storage directly
   const [localSettings, setLocalSettings] = useState<UserSettings>(() => getSettings());
@@ -38,6 +99,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+
+  // Database Info State
+  const [showDbInfo, setShowDbInfo] = useState(false);
 
   useEffect(() => {
     const u = getUser();
@@ -172,6 +236,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
 
   const decrementRef = () => {
     setLocalSettings(prev => ({...prev, supportingReferencesCount: Math.max((prev.supportingReferencesCount || 0) - 1, 0)}));
+  }
+
+  const copySQL = () => {
+      navigator.clipboard.writeText(REQUIRED_SQL);
+      alert("SQL copied to clipboard!");
   }
 
   return (
@@ -467,13 +536,50 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
           </div>
         </div>
         
+        {/* DB Setup */}
+        <div className="pt-4 border-t border-gray-800">
+             <button onClick={() => setShowDbInfo(true)} className="w-full text-center text-xs text-gray-600 hover:text-purple-400 transition-colors">
+                 Database Setup & Migrations
+             </button>
+        </div>
+
         {/* Footer Links */}
-        <div className="flex justify-center space-x-4 text-xs text-gray-500 pt-8 pb-4">
+        <div className="flex justify-center space-x-4 text-xs text-gray-500 pb-4">
             <button onClick={() => onShowLegal(AppView.PRIVACY_POLICY)} className="hover:text-gray-300">Privacy Policy</button>
             <span>•</span>
             <button onClick={() => onShowLegal(AppView.TERMS_OF_SERVICE)} className="hover:text-gray-300">Terms of Service</button>
         </div>
       </div>
+
+      {/* DB Info Modal */}
+      {showDbInfo && (
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+              <div className="bg-gray-800 w-full max-w-lg rounded-2xl border border-gray-700 shadow-2xl flex flex-col max-h-[80vh]">
+                  <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+                      <h3 className="font-bold text-white">Database Migrations</h3>
+                      <button onClick={() => setShowDbInfo(false)} className="text-gray-400 hover:text-white">Close</button>
+                  </div>
+                  <div className="p-4 overflow-y-auto flex-1 text-sm text-gray-300 space-y-4">
+                      <p>To ensure all data is saved correctly to Supabase, you must run the following SQL commands in your Supabase SQL Editor.</p>
+                      <div className="relative">
+                        <pre className="bg-gray-900 p-3 rounded-lg overflow-x-auto text-xs font-mono text-green-400 border border-gray-700">
+                            {REQUIRED_SQL}
+                        </pre>
+                        <button 
+                            onClick={copySQL}
+                            className="absolute top-2 right-2 bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded shadow"
+                        >
+                            Copy
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                          Note: This script includes commands to create tables, enable security policies, and add any missing columns for new features (like church location JSON or friend lists).
+                      </p>
+                  </div>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 };

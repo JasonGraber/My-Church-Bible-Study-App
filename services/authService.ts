@@ -1,3 +1,4 @@
+
 import { User } from '../types';
 import { supabase } from './supabaseClient';
 
@@ -162,6 +163,7 @@ export const getUserById = async (id: string): Promise<User | undefined> => {
 export const updateUser = async (updatedUser: User): Promise<void> => {
     if (!supabase) return;
     
+    // 1. Update Profile
     const profilePayload: any = {
         name: updatedUser.name,
         bio: updatedUser.bio,
@@ -178,28 +180,53 @@ export const updateUser = async (updatedUser: User): Promise<void> => {
         console.error("Error updating profile:", profileError.message);
     }
 
+    // 2. Update Settings
     if (updatedUser.settings) {
-        // Exclude church_location and service_times to prevent schema errors if columns missing
-        const settingsPayload = {
+        const fullPayload = {
             user_id: updatedUser.id,
             church_name: updatedUser.settings.churchName,
-            // church_location: updatedUser.settings.churchLocation, 
+            church_location: updatedUser.settings.churchLocation, 
             study_duration: updatedUser.settings.studyDuration,
             study_length: updatedUser.settings.studyLength,
             supporting_references_count: updatedUser.settings.supportingReferencesCount,
             notification_time: updatedUser.settings.notificationTime,
-            // service_times: updatedUser.settings.serviceTimes,
+            service_times: updatedUser.settings.serviceTimes,
             geofence_enabled: updatedUser.settings.geofenceEnabled,
             sunday_reminder_enabled: updatedUser.settings.sundayReminderEnabled
         };
 
-        const { error: settingsError } = await supabase
+        // Try to save all settings (assuming migrations are run)
+        const { error: fullError } = await supabase
             .from('user_settings')
-            .upsert(settingsPayload, { onConflict: 'user_id' });
+            .upsert(fullPayload, { onConflict: 'user_id' });
             
-        if (settingsError) {
-            // Log full object to see details if message is generic
-            console.error("Error updating user settings:", JSON.stringify(settingsError));
+        if (fullError) {
+            // Check for missing column error (Postgres 42703 is undefined_column, PGRST204 is often schema cache)
+            if (fullError.message.includes("Could not find the") || fullError.code === '42703' || fullError.code === 'PGRST204') {
+                 console.warn("Database schema missing columns. Saving partial settings. Please run migrations from Settings > Database Setup.");
+                 
+                 // Fallback: Save only the base columns that are guaranteed to exist to prevent data loss or crashes
+                 const safePayload = {
+                    user_id: updatedUser.id,
+                    church_name: updatedUser.settings.churchName,
+                    study_duration: updatedUser.settings.studyDuration,
+                    study_length: updatedUser.settings.studyLength,
+                    supporting_references_count: updatedUser.settings.supportingReferencesCount,
+                    notification_time: updatedUser.settings.notificationTime,
+                    geofence_enabled: updatedUser.settings.geofenceEnabled,
+                    sunday_reminder_enabled: updatedUser.settings.sundayReminderEnabled
+                };
+
+                const { error: safeError } = await supabase
+                    .from('user_settings')
+                    .upsert(safePayload, { onConflict: 'user_id' });
+                
+                if (safeError) {
+                    console.error("Error updating user settings (fallback):", safeError.message);
+                }
+            } else {
+                 console.error("Error updating user settings:", fullError.message);
+            }
         }
     }
     
