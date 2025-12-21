@@ -1,5 +1,6 @@
+
 import { Post, User, Comment } from '../types';
-import { getCommunityPosts, savePost, updatePost, getUser, addComment } from './storageService';
+import { getCommunityPosts, savePost, updatePost, getUser, addComment, getStudyById } from './storageService';
 import { getCommunityUsers } from './authService';
 
 export const getFeed = async (): Promise<Post[]> => {
@@ -14,6 +15,18 @@ export const createPost = async (content: string, type: Post['type'] = 'STUDY_SH
     const user = getUser();
     if (!user) throw new Error("Must be logged in");
 
+    let studyData;
+    if (studyId) {
+        try {
+            const study = await getStudyById(studyId);
+            if (study) {
+                studyData = { title: study.sermonTitle, preacher: study.preacher };
+            }
+        } catch (e) {
+            console.warn("Could not fetch study for snapshot", e);
+        }
+    }
+
     const newPost: Post = {
         id: crypto.randomUUID(), // Will be overwritten by DB ID usually, but safe for optimisic
         userId: user.id,
@@ -25,7 +38,8 @@ export const createPost = async (content: string, type: Post['type'] = 'STUDY_SH
         isLikedByCurrentUser: false,
         comments: [],
         type,
-        studyId
+        studyId,
+        studyData
     };
 
     await savePost(newPost);

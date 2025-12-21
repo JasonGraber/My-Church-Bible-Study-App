@@ -1,8 +1,7 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { UserSettings, StudyDuration, StudyLength, GeoLocation, DEFAULT_SETTINGS, User, AppView } from '../types';
-import { saveSettings, getSettings, getUser, logoutUser, updateUser } from '../services/storageService';
+import { saveSettings, getSettings, getUser, logoutUser, updateUser, syncLocalDataToCloud } from '../services/storageService';
 import { getCurrentLocation } from '../services/geoService';
 import { searchChurch } from '../services/geminiService';
 
@@ -23,9 +22,12 @@ interface SearchResult {
 }
 
 const REQUIRED_SQL = `
--- Run these commands in your Supabase SQL Editor to setup the full app schema
+-- ============================================================================
+-- FULL APP SCHEMA SYNCHRONIZATION
+-- Run this entire block in Supabase SQL Editor to ensure all tables and columns exist.
+-- ============================================================================
 
--- 1. Create Profiles Table
+-- 1. PROFILES TABLE
 create table if not exists public.profiles (
   id uuid references auth.users on delete cascade not null primary key,
   email text,
@@ -35,8 +37,14 @@ create table if not exists public.profiles (
   friends text[] default '{}'::text[],
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
+-- Ensure all columns exist (Idempotent Migrations)
+alter table public.profiles add column if not exists email text;
+alter table public.profiles add column if not exists name text;
+alter table public.profiles add column if not exists avatar text;
+alter table public.profiles add column if not exists bio text;
+alter table public.profiles add column if not exists friends text[] default '{}'::text[];
 
--- 2. Create User Settings Table
+-- 2. USER SETTINGS TABLE
 create table if not exists public.user_settings (
   user_id uuid references auth.users on delete cascade not null primary key,
   church_name text,
@@ -50,8 +58,18 @@ create table if not exists public.user_settings (
   sunday_reminder_enabled boolean,
   updated_at timestamp with time zone default timezone('utc'::text, now())
 );
+-- Ensure all columns exist
+alter table public.user_settings add column if not exists church_name text;
+alter table public.user_settings add column if not exists church_location jsonb;
+alter table public.user_settings add column if not exists study_duration integer;
+alter table public.user_settings add column if not exists study_length text;
+alter table public.user_settings add column if not exists supporting_references_count integer;
+alter table public.user_settings add column if not exists notification_time text;
+alter table public.user_settings add column if not exists service_times text[];
+alter table public.user_settings add column if not exists geofence_enabled boolean;
+alter table public.user_settings add column if not exists sunday_reminder_enabled boolean;
 
--- 3. Create Studies Table
+-- 3. STUDIES TABLE
 create table if not exists public.studies (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users not null,
@@ -64,8 +82,16 @@ create table if not exists public.studies (
   is_archived boolean default false,
   created_at timestamp with time zone default now()
 );
+-- Ensure all columns exist
+alter table public.studies add column if not exists sermon_title text;
+alter table public.studies add column if not exists preacher text;
+alter table public.studies add column if not exists date_recorded timestamp with time zone;
+alter table public.studies add column if not exists original_audio_duration integer;
+alter table public.studies add column if not exists days jsonb;
+alter table public.studies add column if not exists is_completed boolean default false;
+alter table public.studies add column if not exists is_archived boolean default false;
 
--- 4. Create Bulletins Table
+-- 4. BULLETINS TABLE
 create table if not exists public.bulletins (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users not null,
@@ -75,8 +101,13 @@ create table if not exists public.bulletins (
   events jsonb,
   created_at timestamp with time zone default now()
 );
+-- Ensure all columns exist
+alter table public.bulletins add column if not exists title text;
+alter table public.bulletins add column if not exists date_scanned timestamp with time zone;
+alter table public.bulletins add column if not exists raw_summary text;
+alter table public.bulletins add column if not exists events jsonb;
 
--- 5. Create Posts Table
+-- 5. POSTS TABLE
 create table if not exists public.posts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users not null,
@@ -85,12 +116,22 @@ create table if not exists public.posts (
   content text,
   type text,
   study_id uuid,
+  study_data jsonb, -- Stores snapshot of title/preacher
   likes integer default 0,
   liked_by_users uuid[] default '{}',
   created_at timestamp with time zone default now()
 );
+-- Ensure all columns exist
+alter table public.posts add column if not exists user_name text;
+alter table public.posts add column if not exists user_avatar text;
+alter table public.posts add column if not exists content text;
+alter table public.posts add column if not exists type text;
+alter table public.posts add column if not exists study_id uuid;
+alter table public.posts add column if not exists study_data jsonb;
+alter table public.posts add column if not exists likes integer default 0;
+alter table public.posts add column if not exists liked_by_users uuid[] default '{}';
 
--- 6. Create Comments Table
+-- 6. COMMENTS TABLE
 create table if not exists public.comments (
   id uuid primary key default gen_random_uuid(),
   post_id uuid references public.posts on delete cascade,
@@ -100,46 +141,70 @@ create table if not exists public.comments (
   text text,
   created_at timestamp with time zone default now()
 );
+-- Ensure all columns exist
+alter table public.comments add column if not exists user_name text;
+alter table public.comments add column if not exists user_avatar text;
+alter table public.comments add column if not exists text text;
 
--- 7. Enable Row Level Security (RLS)
+-- 7. PWA ASSETS TABLE (For App Icons)
+create table if not exists public.pwa_assets (
+  id uuid primary key default gen_random_uuid(),
+  asset_type text not null, 
+  image_data text, 
+  created_at timestamp with time zone default now()
+);
+
+-- 8. ROW LEVEL SECURITY (RLS)
+-- Enable RLS on all tables
 alter table public.profiles enable row level security;
 alter table public.user_settings enable row level security;
 alter table public.studies enable row level security;
 alter table public.bulletins enable row level security;
 alter table public.posts enable row level security;
 alter table public.comments enable row level security;
+alter table public.pwa_assets enable row level security;
 
--- 8. Create Policies
+-- Drop existing policies to prevent conflicts during re-runs
+drop policy if exists "Public profiles are viewable by everyone." on public.profiles;
+drop policy if exists "Users can insert their own profile." on public.profiles;
+drop policy if exists "Users can update own profile." on public.profiles;
 
--- Profiles: Public read, User write own
+drop policy if exists "Users can manage their own settings." on public.user_settings;
+drop policy if exists "Users can manage own studies" on public.studies;
+drop policy if exists "Studies viewable if public link" on public.studies;
+drop policy if exists "Public view studies" on public.studies;
+drop policy if exists "Users can manage own bulletins" on public.bulletins;
+
+drop policy if exists "Posts are viewable by everyone" on public.posts;
+drop policy if exists "Users can insert own posts" on public.posts;
+drop policy if exists "Users can update own posts" on public.posts;
+
+drop policy if exists "Comments are viewable by everyone" on public.comments;
+drop policy if exists "Users can insert own comments" on public.comments;
+drop policy if exists "Public view pwa assets" on public.pwa_assets;
+
+-- Re-create Policies
 create policy "Public profiles are viewable by everyone." on public.profiles for select using (true);
 create policy "Users can insert their own profile." on public.profiles for insert with check (auth.uid() = id);
 create policy "Users can update own profile." on public.profiles for update using (auth.uid() = id);
 
--- Settings: Private to user
 create policy "Users can manage their own settings." on public.user_settings for all using (auth.uid() = user_id);
 
--- Studies: Private to user
 create policy "Users can manage own studies" on public.studies for all using (auth.uid() = user_id);
--- (Optional) If you want studies to be readable by others via shared links, you might need a "select" policy for specific IDs, 
--- or rely on the Posts table to share study metadata. For now, private is safest.
--- To allow fetching shared study details (title/preacher) for posts:
-create policy "Studies viewable if public link" on public.studies for select using (true);
+create policy "Public view studies" on public.studies for select using (true);
 
--- Bulletins: Private to user
 create policy "Users can manage own bulletins" on public.bulletins for all using (auth.uid() = user_id);
 
--- Posts: Public read, User write own
 create policy "Posts are viewable by everyone" on public.posts for select using (true);
 create policy "Users can insert own posts" on public.posts for insert with check (auth.uid() = user_id);
 create policy "Users can update own posts" on public.posts for update using (auth.uid() = user_id);
 
--- Comments: Public read, User write own
 create policy "Comments are viewable by everyone" on public.comments for select using (true);
 create policy "Users can insert own comments" on public.comments for insert with check (auth.uid() = user_id);
 
+create policy "Public view pwa assets" on public.pwa_assets for select using (true);
 
--- 9. Auto-create profile on signup trigger
+-- 9. TRIGGERS
 create or replace function public.handle_new_user() 
 returns trigger as $$
 begin
@@ -153,12 +218,6 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
-
--- 10. Helper for existing tables (in case you are updating)
-alter table public.user_settings add column if not exists church_location jsonb;
-alter table public.user_settings add column if not exists service_times text[];
-alter table public.profiles add column if not exists friends text[];
-alter table public.studies add column if not exists is_archived boolean default false;
 `;
 
 const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowLegal, onViewProfile }) => {
@@ -180,6 +239,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
 
   // Database Info State
   const [showDbInfo, setShowDbInfo] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     const u = getUser();
@@ -320,6 +380,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
       navigator.clipboard.writeText(REQUIRED_SQL);
       alert("SQL copied to clipboard!");
   }
+
+  const handleSync = async () => {
+      if (!confirm("This will upload any local data from this device to your cloud account. Continue?")) return;
+      setIsSyncing(true);
+      try {
+          const result = await syncLocalDataToCloud();
+          alert(`Sync Complete! Uploaded ${result.studies} studies and ${result.bulletins} bulletins.`);
+      } catch (e) {
+          console.error(e);
+          alert("Sync failed. Ensure you are connected to the internet and logged in.");
+      } finally {
+          setIsSyncing(false);
+      }
+  };
 
   return (
     <div className="p-6 h-full overflow-y-auto pb-24 max-w-md mx-auto">
@@ -614,10 +688,31 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
           </div>
         </div>
         
-        {/* DB Setup */}
-        <div className="pt-4 border-t border-gray-800">
+        {/* Cloud Sync & DB Info */}
+        <div className="pt-4 border-t border-gray-800 space-y-4">
+            
+            {/* Sync Button */}
+            <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700 flex justify-between items-center">
+                <div>
+                    <h3 className="text-sm font-bold text-white">Cloud Sync</h3>
+                    <p className="text-xs text-gray-400">Upload local history to database</p>
+                </div>
+                <button 
+                    onClick={handleSync}
+                    disabled={isSyncing}
+                    className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors flex items-center disabled:opacity-50"
+                >
+                    {isSyncing ? "Syncing..." : "Sync Now"}
+                    {!isSyncing && (
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                    )}
+                </button>
+            </div>
+
              <button onClick={() => setShowDbInfo(true)} className="w-full text-center text-xs text-gray-600 hover:text-purple-400 transition-colors">
-                 Database Setup & Migrations
+                 Database Setup & Schema
              </button>
         </div>
 
@@ -634,7 +729,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
           <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
               <div className="bg-gray-800 w-full max-w-lg rounded-2xl border border-gray-700 shadow-2xl flex flex-col max-h-[80vh]">
                   <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                      <h3 className="font-bold text-white">Database Migrations</h3>
+                      <h3 className="font-bold text-white">Database Configuration</h3>
                       <button onClick={() => setShowDbInfo(false)} className="text-gray-400 hover:text-white">Close</button>
                   </div>
                   <div className="p-4 overflow-y-auto flex-1 text-sm text-gray-300 space-y-4">
@@ -651,7 +746,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
                         </button>
                       </div>
                       <p className="text-xs text-gray-500">
-                          Note: This script includes commands to create tables, enable security policies, and add any missing columns for new features (like church location JSON or friend lists).
+                          This SQL uses <code>IF NOT EXISTS</code> to safely add any missing columns or tables without destroying existing data.
                       </p>
                   </div>
               </div>

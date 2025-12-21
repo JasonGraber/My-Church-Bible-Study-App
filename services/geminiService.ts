@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { SermonStudy, UserSettings, StudyLength, Bulletin } from '../types';
 import { getCurrentUser } from './authService';
@@ -10,7 +9,6 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
     const reader = new FileReader();
     reader.onloadend = () => {
       const result = reader.result as string;
-      // Remove data url prefix (e.g. "data:audio/webm;base64,")
       const base64 = result.split(',')[1];
       resolve(base64);
     };
@@ -31,6 +29,7 @@ export const searchChurch = async (query: string): Promise<{name: string, addres
   Each object must have these keys: "name", "address", "lat" (number), "lng" (number), "uri" (Google Maps link if available), "serviceTimes" (array of strings).
   Do not include markdown formatting.`;
 
+  // Fixed: Maps grounding is only supported in Gemini 2.5 series models.
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash',
     contents: prompt,
@@ -43,11 +42,9 @@ export const searchChurch = async (query: string): Promise<{name: string, addres
   if (!text) return [];
 
   try {
-    // Strip markdown code blocks if present
     const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
     const results = JSON.parse(cleanText);
     
-    // Filter results to ensure they have valid coordinates
     if (Array.isArray(results)) {
         return results.filter((r: any) => 
             r && 
@@ -111,7 +108,7 @@ export const processBulletin = async (images: Blob[]): Promise<Bulletin> => {
   parts.push({ text: instruction });
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: { parts },
     config: {
         responseMimeType: "application/json",
@@ -148,14 +145,12 @@ export const generateBibleStudy = async (
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-  // Determine prompt nuances based on settings
   let wordCount = "150";
   if (settings.studyLength === StudyLength.MEDIUM) wordCount = "300";
   if (settings.studyLength === StudyLength.LONG) wordCount = "600";
 
   const refCount = settings.supportingReferencesCount || 0;
 
-  // Define the schema for the output
   const schema = {
     type: Type.OBJECT,
     properties: {
@@ -169,11 +164,11 @@ export const generateBibleStudy = async (
           properties: {
             day: { type: Type.INTEGER },
             topic: { type: Type.STRING },
-            scriptureReference: { type: Type.STRING, description: "Primary scripture focus for the day. Use standard format e.g. 'John 3:16' or '1 Corinthians 13:4'. Do not include text, only the reference." },
+            scriptureReference: { type: Type.STRING, description: "Primary scripture focus for the day." },
             supportingScriptures: { 
                 type: Type.ARRAY, 
                 items: { type: Type.STRING },
-                description: `Exactly ${refCount} additional scripture references that support the topic. Use standard format e.g. 'Romans 8:28'.` 
+                description: `Exactly ${refCount} additional scripture references.` 
             },
             devotionalContent: { type: Type.STRING, description: `A ${wordCount}-word devotional based on the sermon content.` },
             reflectionQuestion: { type: Type.STRING, description: "A deep question for personal application." },
@@ -189,11 +184,10 @@ export const generateBibleStudy = async (
   let parts = [];
   
   const instruction = `You are an expert Bible Study creator.
-    Create a ${settings.studyDuration}-day personal Bible study plan based on the main themes, scriptures, and applications found in the provided message.
-    The user wants a ${settings.studyLength} study each day (approx ${wordCount} words).
+    Create a ${settings.studyDuration}-day personal Bible study plan based on the message content provided.
+    The user wants a ${settings.studyLength} study each day.
     Include exactly ${refCount} supporting scripture references per day.
-    Ensure the tone is encouraging, theologically sound, and practical.
-    IMPORTANT: Format all scripture references cleanly as "Book Chapter:Verse" (e.g., "John 3:16", "2 Timothy 1:7") without extra text or parentheses.`;
+    IMPORTANT: If images are provided, they are photos of handwritten or printed sermon notes. Use OCR to carefully read all points, scriptures, and illustrations mentioned in the notes to build the study plan.`;
 
   if (input.audioBlob) {
     const base64Audio = await blobToBase64(input.audioBlob);
@@ -216,21 +210,21 @@ export const generateBibleStudy = async (
             }
         });
     }
-    parts.push({ text: instruction + " Analyze the attached images of the sermon notes." });
+    parts.push({ text: instruction + " Carefully read the attached photos of the sermon notes and use them as the primary source." });
   }
 
   if (input.text) {
     parts.push({
-      text: instruction + ` Here is the transcript: "${input.text}"`
+      text: instruction + ` Here is the transcript/notes text: "${input.text}"`
     });
   } 
   
   if (parts.length === 0) {
-    throw new Error("No input provided. Please record audio, upload a file, paste text, or upload images.");
+    throw new Error("No input provided.");
   }
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: { parts },
     config: {
         responseMimeType: "application/json",
@@ -240,24 +234,33 @@ export const generateBibleStudy = async (
 
   const responseText = response.text;
   if (!responseText) {
-      throw new Error("Failed to generate study content.");
+      throw new Error("Failed to generate study content. The AI returned an empty response.");
   }
 
-  const data = JSON.parse(responseText);
-  const user = getCurrentUser();
+  try {
+      const data = JSON.parse(responseText);
+      const user = getCurrentUser();
 
-  // Map to internal type and add IDs
-  return {
-    id: crypto.randomUUID(),
-    userId: user?.id || 'anonymous',
-    sermonTitle: data.sermonTitle,
-    preacher: data.preacher,
-    dateRecorded: new Date().toISOString(),
-    originalAudioDuration: 0,
-    isCompleted: false,
-    days: data.days.map((d: any) => ({
-        ...d,
-        isCompleted: false
-    }))
-  };
+      // Validation check: Ensure we have days
+      if (!data.days || !Array.isArray(data.days) || data.days.length === 0) {
+          throw new Error("The AI failed to generate any daily study steps. Please try again with more detailed notes.");
+      }
+
+      return {
+        id: crypto.randomUUID(),
+        userId: user?.id || 'anonymous',
+        sermonTitle: data.sermonTitle || "New Bible Study",
+        preacher: data.preacher || "Guest Speaker",
+        dateRecorded: new Date().toISOString(),
+        originalAudioDuration: 0,
+        isCompleted: false,
+        days: data.days.map((d: any) => ({
+            ...d,
+            isCompleted: false
+        }))
+      };
+  } catch (parseError: any) {
+      console.error("AI Parse Error:", responseText);
+      throw new Error("We couldn't parse the AI's response. " + (parseError.message || ""));
+  }
 };

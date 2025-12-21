@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { AppView, SermonStudy, UserSettings, DEFAULT_SETTINGS, User } from './types';
 // Fixed: Imported getUser instead of getCurrentUser (which is not exported by name from storageService)
@@ -50,7 +51,10 @@ const App: React.FC = () => {
                 handleLogin(sessionUser);
             }
         } catch (e) {
-            console.error("Session init failed", e);
+            console.error("Session init failed, forcing logout clean up", e);
+            // If initialization fails (e.g. bad token), clear the session to prevent a loop
+            await supabase.auth.signOut();
+            setUser(null);
         } finally {
             setAuthLoading(false);
         }
@@ -80,6 +84,9 @@ const App: React.FC = () => {
                     }
                 } catch (e) {
                     console.error("Error refreshing session:", e);
+                    // Force clean up on refresh error
+                    await supabase.auth.signOut();
+                    setUser(null);
                 } finally {
                     setAuthLoading(false);
                 }
@@ -91,7 +98,9 @@ const App: React.FC = () => {
             setAuthLoading(false);
         } else {
             // For other events like INITIAL_SESSION where session might be null
-            setAuthLoading(false);
+            if (!session && authLoading) {
+                 setAuthLoading(false);
+            }
         }
     });
 

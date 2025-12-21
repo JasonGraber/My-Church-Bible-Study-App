@@ -1,6 +1,8 @@
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Service Worker registration has been removed to prevent cross-origin errors 
 // in the preview environment where assets are served from a different domain.
@@ -13,6 +15,8 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+        <App />
+    </ErrorBoundary>
   </React.StrictMode>
 );

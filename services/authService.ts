@@ -28,53 +28,56 @@ const mapSupabaseUser = (sbUser: any, profile: any, settings: any): User => {
     };
 };
 
+/**
+ * Ensures we have a valid Supabase session.
+ * If the session is expired or invalid, it attempts to refresh it.
+ */
+export const ensureValidSession = async (): Promise<void> => {
+    if (!supabase) return;
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error || !session) {
+        // If no session, try a refresh or throw so caller can handle
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError || !refreshData.session) {
+            throw new Error("Session invalid. Please log in again.");
+        }
+    }
+};
+
 export const initializeSession = async (): Promise<User | null> => {
     if (!supabase) return null;
     
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-        // Fetch profile
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-        
-        // Fetch settings from user_settings table
-        const { data: settings } = await supabase
-            .from('user_settings')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .single();
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', session.user.id)
+                .single();
             
-        const user = mapSupabaseUser(session.user, profile, settings);
-        currentUserCache = user;
-        return user;
+            const { data: settings } = await supabase
+                .from('user_settings')
+                .select('*')
+                .eq('user_id', session.user.id)
+                .single();
+                
+            const user = mapSupabaseUser(session.user, profile, settings);
+            currentUserCache = user;
+            return user;
+        }
+    } catch (e) {
+        console.warn("Session init error:", e);
     }
     return null;
 };
 
 export const registerUser = async (email: string, password: string, name: string): Promise<User> => {
     if (!supabase) throw new Error("Supabase not configured");
-
-    const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-            data: { full_name: name }
-        }
-    });
-
+    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } });
     if (error) throw error;
     if (data.user) {
-        // Profile is created by trigger in SQL, wait slightly or return optimistic
-        const user: User = {
-            id: data.user.id,
-            email: email,
-            name: name,
-            avatar: 'bg-purple-600',
-            friends: []
-        };
+        const user: User = { id: data.user.id, email: email, name: name, avatar: 'bg-purple-600', friends: [] };
         currentUserCache = user;
         return user;
     }
@@ -83,26 +86,11 @@ export const registerUser = async (email: string, password: string, name: string
 
 export const loginUser = async (email: string, password: string): Promise<User> => {
     if (!supabase) throw new Error("Supabase not configured");
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-    });
-
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     if (data.user) {
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', data.user.id)
-            .single();
-
-        const { data: settings } = await supabase
-            .from('user_settings')
-            .select('*')
-            .eq('user_id', data.user.id)
-            .single();
-
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
+        const { data: settings } = await supabase.from('user_settings').select('*').eq('user_id', data.user.id).single();
         const user = mapSupabaseUser(data.user, profile, settings);
         currentUserCache = user;
         return user;
@@ -112,26 +100,11 @@ export const loginUser = async (email: string, password: string): Promise<User> 
 
 export const initiateGoogleLogin = async (): Promise<void> => {
     if (!supabase) throw new Error("Supabase not configured");
-
     const redirectUrl = window.location.origin;
-    console.log("Initiating Google Login with redirect:", redirectUrl);
-
-    const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-            redirectTo: redirectUrl,
-            skipBrowserRedirect: true // We will handle the redirect manually to ensure it works
-        }
-    });
-
+    const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: redirectUrl, skipBrowserRedirect: true } });
     if (error) throw error;
-    
-    if (data?.url) {
-        // Manual redirect
-        window.location.href = data.url;
-    } else {
-        throw new Error("No redirect URL returned from Supabase");
-    }
+    if (data?.url) window.location.href = data.url;
+    else throw new Error("No redirect URL");
 };
 
 export const getCurrentUser = (): User | null => {
@@ -140,47 +113,16 @@ export const getCurrentUser = (): User | null => {
 
 export const getUserById = async (id: string): Promise<User | undefined> => {
     if (!supabase) return undefined;
-    
-    const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', id)
-        .single();
-        
-    if (error || !profile) return undefined;
-    
-    // Construct partial user since we don't have auth user object for others
-    return {
-        id: profile.id,
-        email: profile.email || 'hidden',
-        name: profile.name || 'Unknown',
-        avatar: profile.avatar,
-        bio: profile.bio,
-        friends: profile.friends || []
-    };
+    const { data: profile } = await supabase.from('profiles').select('*').eq('id', id).single();
+    if (!profile) return undefined;
+    return { id: profile.id, email: profile.email || 'hidden', name: profile.name || 'Unknown', avatar: profile.avatar, bio: profile.bio, friends: profile.friends || [] };
 };
 
 export const updateUser = async (updatedUser: User): Promise<void> => {
     if (!supabase) return;
-    
-    // 1. Update Profile
-    const profilePayload: any = {
-        name: updatedUser.name,
-        bio: updatedUser.bio,
-        avatar: updatedUser.avatar,
-        friends: updatedUser.friends
-    };
+    const profilePayload: any = { name: updatedUser.name, bio: updatedUser.bio, avatar: updatedUser.avatar, friends: updatedUser.friends };
+    await supabase.from('profiles').update(profilePayload).eq('id', updatedUser.id);
 
-    const { error: profileError } = await supabase
-        .from('profiles')
-        .update(profilePayload)
-        .eq('id', updatedUser.id);
-        
-    if (profileError) {
-        console.error("Error updating profile:", profileError.message);
-    }
-
-    // 2. Update Settings
     if (updatedUser.settings) {
         const fullPayload = {
             user_id: updatedUser.id,
@@ -194,83 +136,29 @@ export const updateUser = async (updatedUser: User): Promise<void> => {
             geofence_enabled: updatedUser.settings.geofenceEnabled,
             sunday_reminder_enabled: updatedUser.settings.sundayReminderEnabled
         };
-
-        // Try to save all settings (assuming migrations are run)
-        const { error: fullError } = await supabase
-            .from('user_settings')
-            .upsert(fullPayload, { onConflict: 'user_id' });
-            
-        if (fullError) {
-            // Check for missing column error (Postgres 42703 is undefined_column, PGRST204 is often schema cache)
-            if (fullError.message.includes("Could not find the") || fullError.code === '42703' || fullError.code === 'PGRST204') {
-                 console.warn("Database schema missing columns. Saving partial settings. Please run migrations from Settings > Database Setup.");
-                 
-                 // Fallback: Save only the base columns that are guaranteed to exist to prevent data loss or crashes
-                 const safePayload = {
-                    user_id: updatedUser.id,
-                    church_name: updatedUser.settings.churchName,
-                    study_duration: updatedUser.settings.studyDuration,
-                    study_length: updatedUser.settings.studyLength,
-                    supporting_references_count: updatedUser.settings.supportingReferencesCount,
-                    notification_time: updatedUser.settings.notificationTime,
-                    geofence_enabled: updatedUser.settings.geofenceEnabled,
-                    sunday_reminder_enabled: updatedUser.settings.sundayReminderEnabled
-                };
-
-                const { error: safeError } = await supabase
-                    .from('user_settings')
-                    .upsert(safePayload, { onConflict: 'user_id' });
-                
-                if (safeError) {
-                    console.error("Error updating user settings (fallback):", safeError.message);
-                }
-            } else {
-                 console.error("Error updating user settings:", fullError.message);
-            }
-        }
+        await supabase.from('user_settings').upsert(fullPayload, { onConflict: 'user_id' });
     }
-    
     currentUserCache = updatedUser;
 };
 
 export const logout = async () => {
     if (supabase) await supabase.auth.signOut();
     currentUserCache = null;
+    localStorage.clear(); // Clear local cache on explicit logout
 };
-
-// --- Social ---
 
 export const getCommunityUsers = async (): Promise<User[]> => {
     if (!supabase) return [];
-    
-    const { data: profiles } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', currentUserCache?.id || '')
-        .limit(20);
-        
+    const { data: profiles } = await supabase.from('profiles').select('*').neq('id', currentUserCache?.id || '').limit(20);
     if (!profiles) return [];
-    
-    return profiles.map((p: any) => ({
-        id: p.id,
-        email: p.email,
-        name: p.name,
-        avatar: p.avatar,
-        bio: p.bio,
-        friends: p.friends || []
-    }));
+    return profiles.map((p: any) => ({ id: p.id, email: p.email, name: p.name, avatar: p.avatar, bio: p.bio, friends: p.friends || [] }));
 };
 
 export const toggleFriend = async (targetUserId: string): Promise<User | null> => {
     if (!currentUserCache || !supabase) return null;
-    
     let newFriends = [...(currentUserCache.friends || [])];
-    if (newFriends.includes(targetUserId)) {
-        newFriends = newFriends.filter(id => id !== targetUserId);
-    } else {
-        newFriends.push(targetUserId);
-    }
-    
+    if (newFriends.includes(targetUserId)) newFriends = newFriends.filter(id => id !== targetUserId);
+    else newFriends.push(targetUserId);
     const updatedUser = { ...currentUserCache, friends: newFriends };
     await updateUser(updatedUser);
     return updatedUser;
