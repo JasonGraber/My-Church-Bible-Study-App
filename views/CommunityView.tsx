@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { Post, User } from '../types';
 import { getFeed, toggleLikePost, commentOnPost } from '../services/socialService';
@@ -83,9 +82,9 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
         try {
             await joinStudy(studyId);
             alert("Study joined! It has been added to your dashboard.");
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
-            alert("Failed to join study. It might have been deleted or archived.");
+            alert("Failed to join study: " + e.message);
         } finally {
             setJoiningMap(prev => ({ ...prev, [studyId]: false }));
         }
@@ -154,7 +153,9 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
                         <div className="p-8 text-center text-gray-500">Loading feed...</div>
                     ) : (
                         <div className="pb-4">
-                            {posts.map(post => (
+                            {posts.length === 0 ? (
+                                <div className="p-12 text-center text-gray-600 italic">No posts yet. Start the conversation!</div>
+                            ) : posts.map(post => (
                                 <div key={post.id} className="border-b border-gray-800 bg-gray-900 mb-2">
                                     {/* Post Header */}
                                     <div className="flex items-center p-4">
@@ -188,9 +189,8 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
                                     <div className="px-4 pb-2">
                                         <p className="text-gray-200 text-sm leading-relaxed mb-3">{post.content}</p>
                                         
-                                        {post.studyId && post.studyData && (
+                                        {post.studyId && (
                                             <div className="mt-3 bg-gray-800 rounded-xl p-4 border border-gray-700 hover:border-purple-500/50 transition-all group relative overflow-hidden">
-                                                {/* Background decorative element */}
                                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24 text-purple-500 transform rotate-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
@@ -206,14 +206,14 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
                                                         </div>
                                                         <div className="min-w-0">
                                                             <p className="text-xs font-bold text-purple-400 uppercase tracking-wide mb-0.5">Bible Study Plan</p>
-                                                            <h3 className="text-white font-bold leading-tight truncate">{post.studyData.title}</h3>
-                                                            {post.studyData.preacher && <p className="text-xs text-gray-500 italic mt-0.5 truncate">{post.studyData.preacher}</p>}
+                                                            <h3 className="text-white font-bold leading-tight truncate">{post.studyData?.title || "Sermon Study"}</h3>
+                                                            {post.studyData?.preacher && <p className="text-xs text-gray-500 italic mt-0.5 truncate">{post.studyData.preacher}</p>}
                                                         </div>
                                                     </div>
                                                 </div>
                                                 
                                                 <div className="mt-4 flex items-center justify-between relative z-10 border-t border-gray-700/50 pt-3">
-                                                    <span className="text-xs text-gray-400">Tap to preview</span>
+                                                    <span className="text-xs text-gray-400">Join to add to your studies</span>
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); handleJoinStudy(post.studyId!); }}
                                                         disabled={joiningMap[post.studyId!]}
@@ -393,7 +393,7 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
                                         </button>
                                         <div>
                                             <button onClick={() => handleUserClick(person.id)} className="text-white font-medium block hover:underline text-left">{person.name}</button>
-                                            <span className="text-xs text-gray-500">2 mutual friends</span>
+                                            <span className="text-xs text-gray-500">Suggested profile</span>
                                         </div>
                                     </div>
                                     <button 

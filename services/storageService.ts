@@ -5,13 +5,14 @@ import { supabase } from './supabaseClient';
 
 const SETTINGS_KEY_PREFIX = 'sermon_scribe_settings_';
 const STUDIES_KEY_PREFIX = 'sermon_scribe_studies_v2_'; 
-const BULLETINS_KEY_PREFIX = 'sermon_scribe_bulletins_v3_'; // Version bump for reliability
+const BULLETINS_KEY_PREFIX = 'sermon_scribe_bulletins_v3_';
 
 // --- Local Helpers ---
 const getLocalStudies = (userId: string): SermonStudy[] => {
     try {
         const stored = localStorage.getItem(STUDIES_KEY_PREFIX + userId);
-        return stored ? JSON.parse(stored) : [];
+        const parsed = stored ? JSON.parse(stored) : [];
+        return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
         console.error("Local storage read error:", e);
         return [];
@@ -36,7 +37,8 @@ const saveLocalStudy = (userId: string, study: SermonStudy) => {
 const getLocalBulletins = (userId: string): Bulletin[] => {
     try {
         const stored = localStorage.getItem(BULLETINS_KEY_PREFIX + userId);
-        return stored ? JSON.parse(stored) : [];
+        const parsed = stored ? JSON.parse(stored) : [];
+        return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
         console.error("Local bulletins read error:", e);
         return [];
@@ -106,56 +108,83 @@ export const saveSettings = (settings: UserSettings): void => {
 
 export { getCurrentUser as getUser, logout as logoutUser, updateUser, getUserById } from './authService';
 
-// --- Mapping ---
+// --- Mapping (Defensive Patterns) ---
 const mapStudyFromDB = (row: any): SermonStudy => ({
   id: row.id,
   userId: row.user_id,
-  sermonTitle: row.sermon_title,
-  preacher: row.preacher,
-  dateRecorded: row.date_recorded,
-  originalAudioDuration: row.original_audio_duration,
-  days: row.days || [],
-  isCompleted: row.is_completed,
-  isArchived: row.is_archived || false
+  sermonTitle: row.sermon_title || "Untitled Sermon",
+  preacher: row.preacher || "Unknown Speaker",
+  dateRecorded: row.date_recorded || new Date().toISOString(),
+  originalAudioDuration: row.original_audio_duration || 0,
+  days: Array.isArray(row.days) ? row.days : [],
+  isCompleted: !!row.is_completed,
+  isArchived: !!row.is_archived
 });
 
 const mapBulletinFromDB = (row: any): Bulletin => ({
     id: row.id,
     userId: row.user_id,
-    dateScanned: row.date_scanned,
-    title: row.title,
-    events: row.events || [],
-    rawSummary: row.raw_summary
+    dateScanned: row.date_scanned || new Date().toISOString(),
+    title: row.title || "Untitled Bulletin",
+    events: Array.isArray(row.events) ? row.events : [],
+    rawSummary: row.raw_summary || ""
 });
 
-// --- Studies (Local First) ---
+const mapPostFromDB = (row: any): Post => {
+    const me = getCurrentUser();
+    let studyData = row.study_data;
+    if (typeof studyData === 'string') {
+        try { studyData = JSON.parse(studyData); } catch(e) { studyData = undefined; }
+    }
+    
+    return {
+        id: row.id,
+        userId: row.user_id,
+        userName: row.user_name || "Community Member",
+        userAvatar: row.user_avatar,
+        content: row.content || "",
+        timestamp: row.created_at || new Date().toISOString(),
+        likes: row.likes || 0,
+        isLikedByCurrentUser: Array.isArray(row.liked_by_users) && me ? row.liked_by_users.includes(me.id) : false,
+        comments: (Array.isArray(row.comments) ? row.comments : []).map((c: any) => ({
+            id: c.id,
+            userId: c.user_id,
+            userName: c.user_name || "Member",
+            userAvatar: c.user_avatar,
+            text: c.text || "",
+            timestamp: c.created_at || new Date().toISOString()
+        })).sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()),
+        type: row.type || 'STUDY_SHARE',
+        studyId: row.study_id,
+        studyData: studyData
+    };
+};
+
+// --- Studies ---
 export const getStudies = async (): Promise<SermonStudy[]> => {
   const user = getCurrentUser();
   if (!user) return [];
 
-  const local = getLocalStudies(user.id).filter(s => !s.isArchived);
-  
   if (supabase) {
-    (async () => {
-        try {
-            const { data, error } = await supabase
-              .from('studies')
-              .select('*')
-              .eq('user_id', user.id)
-              .neq('is_archived', true)
-              .order('created_at', { ascending: false });
+    try {
+        const { data, error } = await supabase
+            .from('studies')
+            .select('*')
+            .eq('user_id', user.id)
+            .neq('is_archived', true)
+            .order('created_at', { ascending: false });
 
-            if (!error && data) {
-                const cloudStudies = data.map(mapStudyFromDB);
-                localStorage.setItem(STUDIES_KEY_PREFIX + user.id, JSON.stringify(cloudStudies));
-            }
-        } catch (e) {
-            console.warn("Background studies sync failed:", e);
+        if (!error && data) {
+            const cloudStudies = data.map(mapStudyFromDB);
+            localStorage.setItem(STUDIES_KEY_PREFIX + user.id, JSON.stringify(cloudStudies));
+            return cloudStudies;
         }
-    })();
+    } catch (e) {
+        console.warn("Cloud studies fetch failed, falling back to local:", e);
+    }
   }
   
-  return local;
+  return getLocalStudies(user.id).filter(s => !s.isArchived);
 };
 
 export const saveStudy = async (study: SermonStudy): Promise<void> => {
@@ -181,12 +210,10 @@ export const saveStudy = async (study: SermonStudy): Promise<void> => {
           is_archived: study.isArchived || false
       };
 
-      const cloudSavePromise = supabase.from('studies').upsert(payload);
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Database Timeout")), 10000));
-      
-      await Promise.race([cloudSavePromise, timeoutPromise]);
+      const { error } = await supabase.from('studies').upsert(payload);
+      if (error) console.warn("Study cloud sync error:", error.message);
   } catch (err) {
-      console.warn("Cloud study sync failed:", err);
+      console.warn("Cloud study sync deferred:", err);
   }
 };
 
@@ -204,14 +231,19 @@ export const getStudyById = async (id: string): Promise<SermonStudy | null> => {
         const local = getLocalStudies(user.id).find(s => s.id === id);
         if (local) return local;
     }
+    
     if (!supabase) return null;
-    const { data } = await supabase.from('studies').select('*').eq('id', id).single();
-    return data ? mapStudyFromDB(data) : null;
+    try {
+        const { data } = await supabase.from('studies').select('*').eq('id', id).maybeSingle();
+        return data ? mapStudyFromDB(data) : null;
+    } catch (e) {
+        return null;
+    }
 };
 
 export const joinStudy = async (originalStudyId: string): Promise<void> => {
     const original = await getStudyById(originalStudyId);
-    if (!original) throw new Error("Study not found");
+    if (!original) throw new Error("Study not found in cloud. The author may not have synced it yet.");
     const user = getCurrentUser();
     if (!user) throw new Error("Must be logged in");
     const newStudy: SermonStudy = {
@@ -225,170 +257,225 @@ export const joinStudy = async (originalStudyId: string): Promise<void> => {
     await saveStudy(newStudy);
 };
 
-// --- Bulletins (Local First) ---
+// --- Bulletins ---
 export const getBulletins = async (): Promise<Bulletin[]> => {
     const user = getCurrentUser();
     if (!user) return [];
     
-    // 1. Return Local immediately
-    const local = getLocalBulletins(user.id);
-
-    // 2. Sync from Cloud in background
     if (supabase) {
-        (async () => {
-            try {
-                const { data, error } = await supabase
-                    .from('bulletins')
-                    .select('*')
-                    .eq('user_id', user.id)
-                    .order('created_at', { ascending: false });
+        try {
+            const { data, error } = await supabase
+                .from('bulletins')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false });
 
-                if (!error && data) {
-                    const cloudBulletins = data.map(mapBulletinFromDB);
-                    localStorage.setItem(BULLETINS_KEY_PREFIX + user.id, JSON.stringify(cloudBulletins));
-                }
-            } catch (e) {
-                console.warn("Background bulletins sync failed:", e);
+            if (!error && data) {
+                const cloudBulletins = data.map(mapBulletinFromDB);
+                localStorage.setItem(BULLETINS_KEY_PREFIX + user.id, JSON.stringify(cloudBulletins));
+                return cloudBulletins;
             }
-        })();
+        } catch (e) {
+            console.warn("Cloud bulletins fetch failed, falling back to local:", e);
+        }
     }
     
-    return local;
+    return getLocalBulletins(user.id);
 };
 
 export const saveBulletin = async (bulletin: Bulletin): Promise<void> => {
     const user = getCurrentUser();
     if (!user) return;
     
-    // 1. Save Locally
     saveLocalBulletin(user.id, bulletin);
 
-    // 2. Sync to Cloud
     if (!supabase) return;
 
-    try {
-        await ensureValidSession();
-        
-        const payload = { 
-            id: bulletin.id, 
-            user_id: user.id, 
-            title: bulletin.title, 
-            date_scanned: bulletin.dateScanned, 
-            raw_summary: bulletin.rawSummary, 
-            events: bulletin.events 
-        };
-
-        const cloudSavePromise = supabase.from('bulletins').upsert(payload);
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Database Timeout")), 10000));
-        
-        await Promise.race([cloudSavePromise, timeoutPromise]);
-    } catch (err) {
-        console.warn("Cloud bulletin sync failed:", err);
-    }
+    (async () => {
+        try {
+            await ensureValidSession();
+            const payload = { 
+                id: bulletin.id, 
+                user_id: user.id, 
+                title: bulletin.title, 
+                date_scanned: bulletin.dateScanned,
+                raw_summary: bulletin.rawSummary,
+                events: bulletin.events
+            };
+            await supabase.from('bulletins').upsert(payload);
+        } catch (err) {
+            console.warn("Cloud bulletin sync error:", err);
+        }
+    })();
 };
 
 export const deleteBulletin = async (id: string): Promise<void> => {
     const user = getCurrentUser();
     if (!user) return;
-    const current = getLocalBulletins(user.id).filter(b => b.id !== id);
-    localStorage.setItem(BULLETINS_KEY_PREFIX + user.id, JSON.stringify(current));
+    const bulletins = getLocalBulletins(user.id).filter(b => b.id !== id);
+    localStorage.setItem(BULLETINS_KEY_PREFIX + user.id, JSON.stringify(bulletins));
     if (supabase) await supabase.from('bulletins').delete().eq('id', id);
 };
 
 export const deleteEvent = async (eventId: string): Promise<void> => {
     const user = getCurrentUser();
     if (!user) return;
-    
     const bulletins = getLocalBulletins(user.id);
-    let affectedBulletin: Bulletin | null = null;
     
-    const newBulletins = bulletins.map(b => {
-        const initialCount = b.events.length;
-        const newEvents = b.events.filter(e => e.id !== eventId);
-        if (newEvents.length !== initialCount) {
-            affectedBulletin = { ...b, events: newEvents };
-            return affectedBulletin;
-        }
-        return b;
-    });
-
-    if (affectedBulletin) {
-        localStorage.setItem(BULLETINS_KEY_PREFIX + user.id, JSON.stringify(newBulletins));
-        if (supabase) {
-            await supabase.from('bulletins').update({ events: affectedBulletin.events }).eq('id', affectedBulletin.id);
+    for (const b of bulletins) {
+        const index = (b.events || []).findIndex(e => e.id === eventId);
+        if (index !== -1) {
+            const updatedEvents = b.events.filter(e => e.id !== eventId);
+            const updatedBulletin = { ...b, events: updatedEvents };
+            saveLocalBulletin(user.id, updatedBulletin);
+            if (supabase) {
+                await supabase.from('bulletins').update({ events: updatedEvents }).eq('id', b.id);
+            }
+            break;
         }
     }
 };
 
-export const syncLocalDataToCloud = async (): Promise<{ studies: number; bulletins: number }> => {
+export const syncLocalDataToCloud = async (): Promise<{studies: number, bulletins: number}> => {
     const user = getCurrentUser();
     if (!user || !supabase) return { studies: 0, bulletins: 0 };
-
+    
     const localStudies = getLocalStudies(user.id);
     const localBulletins = getLocalBulletins(user.id);
-
-    let studiesCount = 0;
-    let bulletinsCount = 0;
+    
+    let studyCount = 0;
+    let bulletinCount = 0;
 
     for (const study of localStudies) {
-        try {
-            await saveStudy(study);
-            studiesCount++;
-        } catch (e) { console.error("Sync study error", e); }
+        const payload = {
+            id: study.id,
+            user_id: user.id,
+            sermon_title: study.sermonTitle,
+            preacher: study.preacher,
+            date_recorded: study.dateRecorded,
+            original_audio_duration: study.originalAudioDuration,
+            days: study.days,
+            is_completed: study.isCompleted,
+            is_archived: study.isArchived || false
+        };
+        const { error } = await supabase.from('studies').upsert(payload);
+        if (!error) studyCount++;
     }
 
     for (const bulletin of localBulletins) {
-        try {
-            await saveBulletin(bulletin);
-            bulletinsCount++;
-        } catch (e) { console.error("Sync bulletin error", e); }
+        const payload = {
+            id: bulletin.id,
+            user_id: user.id,
+            title: bulletin.title,
+            date_scanned: bulletin.dateScanned,
+            raw_summary: bulletin.rawSummary,
+            events: bulletin.events
+        };
+        const { error } = await supabase.from('bulletins').upsert(payload);
+        if (!error) bulletinCount++;
     }
-
-    return { studies: studiesCount, bulletins: bulletinsCount };
+    
+    return { studies: studyCount, bulletins: bulletinCount };
 };
 
-// --- Social ---
+// --- Community ---
 export const getCommunityPosts = async (): Promise<Post[]> => {
     if (!supabase) return [];
     try {
-        const { data: postsData } = await supabase.from('posts').select('*, comments (*)').order('created_at', { ascending: false }).limit(20);
-        if (!postsData) return [];
-        const user = getCurrentUser();
-        return postsData.map((row: any) => ({
-            id: row.id,
-            userId: row.user_id,
-            userName: row.user_name,
-            userAvatar: row.user_avatar,
-            content: row.content,
-            type: row.type,
-            studyId: row.study_id,
-            studyData: row.study_data,
-            timestamp: row.created_at,
-            likes: row.likes || 0,
-            isLikedByCurrentUser: (row.liked_by_users || []).includes(user?.id),
-            comments: (row.comments || []).map((c: any) => ({ id: c.id, userId: c.user_id, userName: c.user_name, userAvatar: c.user_avatar, text: c.text, timestamp: c.created_at }))
-        }));
-    } catch (e) { return []; }
-};
+        const { data, error } = await supabase
+            .from('posts')
+            .select('*, comments(*)')
+            .order('created_at', { ascending: false });
+        
+        if (!error && data) {
+            return data.map(mapPostFromDB);
+        }
 
-export const getPostsByUserId = async (userId: string): Promise<Post[]> => {
-    if (!supabase) return [];
-    const { data } = await supabase.from('posts').select('*').eq('user_id', userId);
-    return data || [];
+        const { data: fallbackData, error: fallbackError } = await supabase
+            .from('posts')
+            .select('*')
+            .order('created_at', { ascending: false });
+        
+        if (fallbackError || !fallbackData) return [];
+        return fallbackData.map(mapPostFromDB);
+    } catch (e) {
+        return [];
+    }
 };
 
 export const savePost = async (post: Post): Promise<void> => {
     if (!supabase) return;
-    await supabase.from('posts').upsert({ id: post.id, user_id: post.userId, user_name: post.userName, user_avatar: post.userAvatar, content: post.content, type: post.type, study_id: post.studyId, study_data: post.studyData, created_at: post.timestamp });
+    const payload = {
+        id: post.id,
+        user_id: post.userId,
+        user_name: post.userName,
+        user_avatar: post.userAvatar,
+        content: post.content,
+        type: post.type,
+        study_id: post.studyId,
+        study_data: post.studyData,
+        likes: post.likes,
+        liked_by_users: post.isLikedByCurrentUser ? [post.userId] : []
+    };
+    const { error } = await supabase.from('posts').upsert(payload);
+    
+    if (error) {
+        if (error.message.includes('column "study_data" of relation "posts" does not exist') || error.message.includes('schema cache')) {
+            throw new Error("Database schema out of sync. Please go to Settings and run the Supabase Migration Tool SQL to fix social features.");
+        }
+        throw error;
+    }
 };
 
 export const updatePost = async (post: Post): Promise<void> => {
     if (!supabase) return;
     const user = getCurrentUser();
-    await supabase.from('posts').update({ likes: post.likes, liked_by_users: post.isLikedByCurrentUser ? [user?.id] : [] }).eq('id', post.id);
+    if (!user) return;
+
+    try {
+        const { data } = await supabase.from('posts').select('liked_by_users').eq('id', post.id).maybeSingle();
+        let likedBy = Array.isArray(data?.liked_by_users) ? data.liked_by_users : [];
+        
+        if (post.isLikedByCurrentUser) {
+            if (!likedBy.includes(user.id)) likedBy.push(user.id);
+        } else {
+            likedBy = likedBy.filter((id: string) => id !== user.id);
+        }
+
+        await supabase.from('posts').update({ 
+            likes: likedBy.length,
+            liked_by_users: likedBy 
+        }).eq('id', post.id);
+    } catch (e) {
+        console.warn("Post like update failed", e);
+    }
 };
 
 export const addComment = async (postId: string, comment: Comment): Promise<void> => {
     if (!supabase) return;
-    await supabase.from('comments').insert({ id: comment.id, post_id: postId, user_id: comment.userId, user_name: comment.userName, user_avatar: comment.userAvatar, text: comment.text, created_at: comment.timestamp });
+    const payload = {
+        id: comment.id,
+        post_id: postId,
+        user_id: comment.userId,
+        user_name: comment.userName,
+        user_avatar: comment.userAvatar,
+        text: comment.text
+    };
+    await supabase.from('comments').insert(payload);
+};
+
+export const getPostsByUserId = async (userId: string): Promise<Post[]> => {
+    if (!supabase) return [];
+    try {
+        const { data } = await supabase
+            .from('posts')
+            .select('*, comments(*)')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+        
+        if (!data) return [];
+        return data.map(mapPostFromDB);
+    } catch (e) {
+        return [];
+    }
 };

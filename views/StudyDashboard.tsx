@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { SermonStudy, User } from '../types';
-import { getStudies, deleteStudy } from '../services/storageService';
+import { getStudies, deleteStudy, saveStudy } from '../services/storageService';
 import { createPost } from '../services/socialService';
 import { getCommunityUsers, toggleFriend, getCurrentUser } from '../services/authService';
 
@@ -29,7 +29,6 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
   const loadStudies = async () => {
       setLoading(true);
       try {
-          // getStudies now returns local data instantly
           const data = await getStudies();
           setStudies(data);
       } catch (e) {
@@ -74,11 +73,15 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
       if (!studyToShare) return;
       setSharing(true);
       try {
+          // IMPORTANT: Await the cloud sync of the study itself before creating the post link
+          // This ensures that when others see the post, the study is already in Supabase for them to join.
+          await saveStudy(studyToShare);
+          
           await createPost(`I just finished generating a study for "${studyToShare.sermonTitle}". It's really good!`, 'STUDY_SHARE', studyToShare.id);
           alert("Posted to Community Feed!");
           closeShareModal();
-      } catch (e) {
-          alert("Failed to post.");
+      } catch (e: any) {
+          alert("Failed to post: " + e.message);
       } finally {
           setSharing(false);
       }
@@ -92,11 +95,14 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
           if (!me?.friends?.includes(targetUser.id)) {
               await toggleFriend(targetUser.id);
           }
+          // Ensure study is in cloud
+          await saveStudy(studyToShare);
+          
           await createPost(`Shared a study with ${targetUser.name}: "${studyToShare.sermonTitle}"`, 'STUDY_SHARE', studyToShare.id);
           alert(`Shared with ${targetUser.name} and added to friends!`);
           closeShareModal();
-      } catch (e) {
-          alert("Failed to share.");
+      } catch (e: any) {
+          alert("Failed to share: " + e.message);
       } finally {
           setSharing(false);
       }

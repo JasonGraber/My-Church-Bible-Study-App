@@ -3,7 +3,7 @@ import React, { ErrorInfo, ReactNode } from 'react';
 import { supabase } from '../services/supabaseClient';
 
 interface Props {
-  // Making children optional resolves the "missing in type {}" error in JSX usage when used as a wrapper.
+  // children must be explicitly included in props for class components in some TS configurations
   children?: ReactNode;
 }
 
@@ -12,22 +12,30 @@ interface State {
   error: Error | null;
 }
 
-// Fix: Use React.Component explicitly to ensure proper inheritance and access to instance properties.
+/**
+ * ErrorBoundary catches JavaScript errors anywhere in their child component tree,
+ * logs those errors, and displays a fallback UI instead of the component tree that crashed.
+ */
+// Fix: Use React.Component explicitly to ensure inheritance properties like 'state' and 'props' are correctly recognized by the TypeScript compiler.
 class ErrorBoundary extends React.Component<Props, State> {
+  // Fix: Removed 'override' modifier as it was causing compilation errors due to inconsistent inheritance detection in this environment.
+  public state: State = {
+    hasError: false,
+    error: null,
+  };
+
   constructor(props: Props) {
     super(props);
-    // Fix: Correctly initializing state on the instance.
-    this.state = {
-      hasError: false,
-      error: null,
-    };
   }
 
   public static getDerivedStateFromError(error: Error): State {
+    // Update state so the next render will show the fallback UI.
     return { hasError: true, error };
   }
 
+  // Fix: Removed 'override' modifier.
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    // You can also log the error to an error reporting service
     console.error("Uncaught error:", error, errorInfo);
   }
 
@@ -41,19 +49,21 @@ class ErrorBoundary extends React.Component<Props, State> {
         console.warn("Failed to sign out via Supabase SDK", e);
     }
     
-    // Clear all local storage
+    // Clear all local storage to fix corruption issues
     localStorage.clear();
     
     // Clear session storage
     sessionStorage.clear();
 
-    // Reload the app
+    // Reload the app to the root
     window.location.href = '/';
   };
 
+  // Fix: Removed 'override' modifier.
   public render() {
-    // Fix: Accessing state safely from this.state as inherited from React.Component.
+    // Accessing state safely from this.state.
     if (this.state.hasError) {
+      // Custom fallback UI
       return (
         <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6 text-center">
           <div className="bg-gray-800 p-8 rounded-2xl border border-gray-700 shadow-2xl max-w-sm w-full">
@@ -70,7 +80,6 @@ class ErrorBoundary extends React.Component<Props, State> {
 
             <div className="bg-black/30 p-3 rounded-lg mb-6 text-left overflow-hidden">
                 <p className="font-mono text-[10px] text-red-300 break-all">
-                    {/* Fix: Accessing instance error state correctly. */}
                     {this.state.error?.message || "Unknown Error"}
                 </p>
             </div>
@@ -89,7 +98,7 @@ class ErrorBoundary extends React.Component<Props, State> {
       );
     }
 
-    // Fix: Explicitly returning children from this.props.
+    // Fix: Explicitly returning children from this.props. Inheritance from React.Component<Props, State> ensures this property exists.
     return this.props.children;
   }
 }

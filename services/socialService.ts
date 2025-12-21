@@ -1,11 +1,9 @@
 
 import { Post, User, Comment } from '../types';
 import { getCommunityPosts, savePost, updatePost, getUser, addComment, getStudyById } from './storageService';
-import { getCommunityUsers } from './authService';
 
 export const getFeed = async (): Promise<Post[]> => {
     const posts = await getCommunityPosts();
-    // No mocks needed for live DB
     return posts.sort((a, b) => 
         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
@@ -28,7 +26,7 @@ export const createPost = async (content: string, type: Post['type'] = 'STUDY_SH
     }
 
     const newPost: Post = {
-        id: crypto.randomUUID(), // Will be overwritten by DB ID usually, but safe for optimisic
+        id: crypto.randomUUID(),
         userId: user.id,
         userName: user.name || user.email.split('@')[0],
         userAvatar: user.avatar || 'bg-gray-500',
@@ -56,7 +54,6 @@ export const toggleLikePost = (post: Post): Post => {
         updated.isLikedByCurrentUser = true;
     }
     
-    // Fire and forget update
     updatePost(updated);
     return updated;
 };
@@ -76,7 +73,6 @@ export const commentOnPost = async (postId: string, text: string): Promise<Post>
 
     await addComment(postId, newComment);
     
-    // Re-fetch the feed to get the updated post with the new comment from the DB.
     const updatedFeed = await getFeed();
     const updatedPost = updatedFeed.find(p => p.id === postId);
 
