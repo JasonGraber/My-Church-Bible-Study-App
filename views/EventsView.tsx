@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Bulletin, ChurchEvent } from '../types';
 import { getBulletins, deleteBulletin, deleteEvent } from '../services/storageService';
@@ -9,57 +10,66 @@ interface EventsViewProps {
 const EventsView: React.FC<EventsViewProps> = ({ onScanBulletin }) => {
   const [bulletins, setBulletins] = useState<Bulletin[]>([]);
   const [events, setEvents] = useState<ChurchEvent[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = async () => {
-    const savedBulletins = await getBulletins();
-    setBulletins(savedBulletins);
-    
-    // Aggregate and sort events
-    const allEvents = savedBulletins.flatMap(b => b.events);
-    // Sort by date (ascending), then time
-    allEvents.sort((a, b) => {
-        const dateA = new Date(`${a.date}T${convertTo24Hour(a.time)}`).getTime();
-        const dateB = new Date(`${b.date}T${convertTo24Hour(b.time)}`).getTime();
-        return dateA - dateB;
-    });
+    setLoading(true);
+    try {
+        const savedBulletins = await getBulletins();
+        setBulletins(savedBulletins);
+        
+        // Aggregate and sort events
+        const allEvents = savedBulletins.flatMap(b => b.events);
+        // Sort by date (ascending), then time
+        allEvents.sort((a, b) => {
+            const dateA = new Date(`${a.date}T${convertTo24Hour(a.time)}`).getTime();
+            const dateB = new Date(`${b.date}T${convertTo24Hour(b.time)}`).getTime();
+            return dateA - dateB;
+        });
 
-    // Filter out past events (older than yesterday to allow for slight timezone diffs)
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    const upcomingEvents = allEvents.filter(e => {
-        const eventDate = new Date(e.date);
-        return eventDate >= yesterday;
-    });
+        // Filter out past events (older than yesterday)
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        const upcomingEvents = allEvents.filter(e => {
+            const eventDate = new Date(e.date);
+            return eventDate >= yesterday;
+        });
 
-    setEvents(upcomingEvents);
+        setEvents(upcomingEvents);
+    } catch (e) {
+        console.error("Failed to load events:", e);
+    } finally {
+        setLoading(false);
+    }
   };
 
   const convertTo24Hour = (timeStr: string) => {
-     // Basic helper to approximate time for sorting
-     // e.g. "7:00 PM" -> "19:00:00"
-     // If parsing fails, return a default
      try {
-         const [time, modifier] = timeStr.split(' ');
-         let [hours, minutes] = time.split(':');
-         if (hours === '12') hours = '00';
-         if (modifier && modifier.toUpperCase() === 'PM') hours = (parseInt(hours, 10) + 12).toString();
-         return `${hours.padStart(2, '0')}:${minutes}:00`;
+         const cleanTime = timeStr.trim().toUpperCase();
+         const isPM = cleanTime.includes('PM');
+         const isAM = cleanTime.includes('AM');
+         
+         let [timePart] = cleanTime.split(/\s|[A-Z]/);
+         let [hours, minutes] = timePart.split(':');
+         
+         let h = parseInt(hours, 10);
+         if (isPM && h < 12) h += 12;
+         if (isAM && h === 12) h = 0;
+         
+         return `${h.toString().padStart(2, '0')}:${(minutes || '00').padStart(2, '0')}:00`;
      } catch(e) {
          return "00:00:00";
      }
   }
 
   const addToCalendar = (event: ChurchEvent) => {
-      // Create .ics content
-      const startDate = event.date.replace(/-/g, ''); // YYYYMMDD
+      const startDate = event.date.replace(/-/g, '');
       const startTime = convertTo24Hour(event.time).replace(/:/g, '').substring(0,6);
-      
-      // Simple duration assumption (1 hour)
       
       const icsContent = `BEGIN:VCALENDAR
 VERSION:2.0
@@ -76,92 +86,104 @@ END:VCALENDAR`;
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `${event.title}.ics`);
+      link.setAttribute('download', `${event.title.replace(/[^a-z0-9]/gi, '_')}.ics`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
   };
 
-  const handleDeleteBulletin = (id: string) => {
+  const handleDeleteBulletin = async (id: string) => {
       if (window.confirm("Delete this bulletin?")) {
-          deleteBulletin(id);
+          await deleteBulletin(id);
           loadData();
       }
   }
 
-  const handleDeleteEvent = (e: React.MouseEvent, eventId?: string) => {
-    e.stopPropagation(); // Stop event from bubbling up
+  const handleDeleteEvent = async (e: React.MouseEvent, eventId?: string) => {
+    e.stopPropagation();
     if (!eventId) return;
     
     if (window.confirm("Delete this event?")) {
-        deleteEvent(eventId);
+        await deleteEvent(eventId);
         loadData();
     }
   }
 
   return (
-    <div className="p-6 h-full overflow-y-auto pb-24 max-w-md mx-auto relative">
-      <h1 className="text-2xl font-serif font-bold text-white mb-6">Church Events</h1>
+    <div className="p-6 h-full overflow-y-auto pb-24 max-w-md mx-auto relative no-scrollbar">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-serif font-bold text-white">Church Events</h1>
+        <button 
+            onClick={loadData}
+            className="p-2 text-gray-500 hover:text-purple-400 transition-colors"
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+        </button>
+      </div>
 
-      {/* Upcoming Events Section */}
       <section className="mb-8">
-          <h2 className="text-sm font-bold text-purple-400 uppercase tracking-wider mb-4">Upcoming Events</h2>
-          {events.length === 0 ? (
-              <div className="bg-gray-800 rounded-xl p-6 text-center border border-gray-700">
-                  <p className="text-gray-400 text-sm">No upcoming events found.</p>
-                  <p className="text-xs text-gray-500 mt-2">Scan a bulletin to add events.</p>
+          <h2 className="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-4">Upcoming Events</h2>
+          {loading && events.length === 0 ? (
+              <div className="p-8 text-center text-gray-500 text-sm">Loading church events...</div>
+          ) : events.length === 0 ? (
+              <div className="bg-gray-800/50 rounded-2xl p-8 text-center border border-gray-700/50 shadow-xl">
+                  <div className="h-12 w-12 bg-gray-700/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <p className="text-gray-400 text-sm font-medium">No upcoming events</p>
+                  <p className="text-xs text-gray-600 mt-2">Scan your church bulletin to automatically extract dates and times.</p>
               </div>
           ) : (
-              <div className="space-y-3">
+              <div className="space-y-4">
                   {events.map((event, idx) => (
-                      <div key={idx} className="bg-gray-800 rounded-xl p-4 border border-gray-700 shadow-lg flex flex-col relative group">
+                      <div key={idx} className="bg-gray-800 rounded-2xl p-5 border border-gray-700 shadow-lg relative overflow-hidden group">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl -mr-8 -mt-8 pointer-events-none"></div>
                           
-                          {/* Top Action Bar */}
-                          <div className="flex justify-between items-start mb-2">
-                              <div className="bg-gray-700 rounded px-2 py-1 text-center min-w-[50px]">
-                                  <span className="block text-[10px] text-gray-400 uppercase font-bold">
+                          <div className="flex justify-between items-start mb-4 relative z-10">
+                              <div className="bg-purple-900/40 border border-purple-500/30 rounded-xl px-3 py-1.5 text-center min-w-[60px]">
+                                  <span className="block text-[9px] text-purple-400 uppercase font-black tracking-tighter">
                                       {new Date(event.date).toLocaleDateString(undefined, {month: 'short'})}
                                   </span>
-                                  <span className="block text-xl font-bold text-white leading-none">
+                                  <span className="block text-2xl font-black text-white leading-none">
                                       {new Date(event.date).getDate()}
                                   </span>
                               </div>
                               
                               <div className="flex space-x-2">
-                                {/* Delete Event Button */}
                                 <button 
                                     onClick={(e) => handleDeleteEvent(e, event.id)}
-                                    className="text-xs bg-gray-700 text-gray-400 px-2 py-1.5 rounded hover:bg-red-900/40 hover:text-red-300 transition-colors flex items-center z-10"
-                                    title="Delete Event"
+                                    className="p-2 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-all"
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                     </svg>
                                 </button>
-
                                 <button 
                                     onClick={() => addToCalendar(event)}
-                                    className="text-xs bg-purple-900/40 text-purple-300 px-2 py-1.5 rounded hover:bg-purple-900/60 transition-colors flex items-center z-10"
+                                    className="bg-purple-600 hover:bg-purple-700 text-white p-2 rounded-lg shadow-md transition-all active:scale-95"
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                                     </svg>
-                                    Add to Cal
                                 </button>
                               </div>
                           </div>
                           
-                          <h3 className="text-lg font-bold text-white mb-1 pr-6">{event.title}</h3>
+                          <h3 className="text-xl font-bold text-white mb-2 pr-6 leading-tight">{event.title}</h3>
                           
-                          <div className="flex items-center text-xs text-gray-400 mb-2 space-x-3">
+                          <div className="flex flex-wrap items-center text-[11px] text-gray-400 mb-4 gap-4">
                               <span className="flex items-center">
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 mr-1.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                   </svg>
                                   {event.time}
                               </span>
                               <span className="flex items-center">
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 mr-1.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                                   </svg>
@@ -169,51 +191,44 @@ END:VCALENDAR`;
                               </span>
                           </div>
                           
-                          <p className="text-sm text-gray-300 leading-snug">{event.description}</p>
+                          <p className="text-sm text-gray-300 leading-relaxed bg-gray-900/40 p-3 rounded-xl border border-gray-700/50">{event.description}</p>
                       </div>
                   ))}
               </div>
           )}
       </section>
 
-      {/* Archived Bulletins */}
       <section>
-          <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Digitized Bulletins</h2>
+          <h2 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4">Archived Bulletins</h2>
           {bulletins.length === 0 ? (
-               <p className="text-xs text-gray-600 italic">No bulletins scanned yet.</p>
+               <p className="text-xs text-gray-600 italic">No bulletin history available.</p>
           ) : (
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3">
                   {bulletins.map(bulletin => (
-                      <div key={bulletin.id} className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-                          <div className="flex justify-between items-start">
-                              <div>
-                                  <h3 className="text-white font-medium text-sm">{bulletin.title}</h3>
-                                  <p className="text-xs text-gray-500">Scanned on {new Date(bulletin.dateScanned).toLocaleDateString()}</p>
-                              </div>
-                              <button onClick={() => handleDeleteBulletin(bulletin.id)} className="text-gray-600 hover:text-red-400">
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                              </button>
+                      <div key={bulletin.id} className="bg-gray-800/40 border border-gray-700/50 rounded-xl p-4 flex justify-between items-center group">
+                          <div className="min-w-0">
+                              <h3 className="text-white font-bold text-sm truncate">{bulletin.title}</h3>
+                              <p className="text-[10px] text-gray-500 mt-1">Digitized {new Date(bulletin.dateScanned).toLocaleDateString()}</p>
                           </div>
-                          {bulletin.rawSummary && (
-                              <div className="mt-2 bg-gray-800/50 p-2 rounded text-xs text-gray-400 border border-gray-800">
-                                  <p className="font-bold mb-1 text-gray-500">Summary:</p>
-                                  {bulletin.rawSummary}
-                              </div>
-                          )}
+                          <button 
+                            onClick={() => handleDeleteBulletin(bulletin.id)} 
+                            className="p-2 text-gray-600 hover:text-red-400 transition-colors"
+                          >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                          </button>
                       </div>
                   ))}
               </div>
           )}
       </section>
 
-      {/* Scan Bulletin FAB */}
       <button 
         onClick={onScanBulletin}
-        className="fixed bottom-20 right-6 bg-purple-600 text-white rounded-full p-4 shadow-xl border-2 border-purple-500 hover:bg-purple-700 active:scale-95 transition-all z-40"
+        className="fixed bottom-20 right-6 bg-purple-600 text-white rounded-full p-4 shadow-2xl border-2 border-purple-500 hover:bg-purple-700 active:scale-95 transition-all z-40"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>

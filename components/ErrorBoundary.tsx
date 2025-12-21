@@ -1,5 +1,5 @@
 
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 import { supabase } from '../services/supabaseClient';
 
 interface Props {
@@ -12,10 +12,11 @@ interface State {
   error: Error | null;
 }
 
-// Fix: Explicitly using 'Component' from 'react' to resolve state/props access errors.
-class ErrorBoundary extends Component<Props, State> {
+// Fix: Use React.Component explicitly to ensure proper inheritance and access to instance properties.
+class ErrorBoundary extends React.Component<Props, State> {
   constructor(props: Props) {
     super(props);
+    // Fix: Correctly initializing state on the instance.
     this.state = {
       hasError: false,
       error: null,
@@ -33,7 +34,9 @@ class ErrorBoundary extends Component<Props, State> {
   private handleReset = async () => {
     try {
         // Attempt to clear Supabase session specifically
-        await supabase.auth.signOut();
+        if (supabase) {
+          await supabase.auth.signOut();
+        }
     } catch (e) {
         console.warn("Failed to sign out via Supabase SDK", e);
     }
@@ -49,7 +52,7 @@ class ErrorBoundary extends Component<Props, State> {
   };
 
   public render() {
-    // Access state through this.state which is now properly recognized by the compiler.
+    // Fix: Accessing state safely from this.state as inherited from React.Component.
     if (this.state.hasError) {
       return (
         <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6 text-center">
@@ -67,6 +70,7 @@ class ErrorBoundary extends Component<Props, State> {
 
             <div className="bg-black/30 p-3 rounded-lg mb-6 text-left overflow-hidden">
                 <p className="font-mono text-[10px] text-red-300 break-all">
+                    {/* Fix: Accessing instance error state correctly. */}
                     {this.state.error?.message || "Unknown Error"}
                 </p>
             </div>
@@ -85,7 +89,7 @@ class ErrorBoundary extends Component<Props, State> {
       );
     }
 
-    // Explicitly return children from props, which are now correctly inherited from React.Component.
+    // Fix: Explicitly returning children from this.props.
     return this.props.children;
   }
 }

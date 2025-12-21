@@ -5,7 +5,7 @@ import { supabase } from './supabaseClient';
 
 const SETTINGS_KEY_PREFIX = 'sermon_scribe_settings_';
 const STUDIES_KEY_PREFIX = 'sermon_scribe_studies_v2_'; 
-const BULLETINS_KEY_PREFIX = 'sermon_scribe_bulletins_v2_';
+const BULLETINS_KEY_PREFIX = 'sermon_scribe_bulletins_v3_'; // Version bump for reliability
 
 // --- Local Helpers ---
 const getLocalStudies = (userId: string): SermonStudy[] => {
@@ -30,6 +30,31 @@ const saveLocalStudy = (userId: string, study: SermonStudy) => {
         localStorage.setItem(STUDIES_KEY_PREFIX + userId, JSON.stringify(studies));
     } catch (e) {
         console.error("Local storage write error:", e);
+    }
+};
+
+const getLocalBulletins = (userId: string): Bulletin[] => {
+    try {
+        const stored = localStorage.getItem(BULLETINS_KEY_PREFIX + userId);
+        return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+        console.error("Local bulletins read error:", e);
+        return [];
+    }
+};
+
+const saveLocalBulletin = (userId: string, bulletin: Bulletin) => {
+    try {
+        const bulletins = getLocalBulletins(userId);
+        const index = bulletins.findIndex(b => b.id === bulletin.id);
+        if (index >= 0) {
+            bulletins[index] = bulletin;
+        } else {
+            bulletins.unshift(bulletin);
+        }
+        localStorage.setItem(BULLETINS_KEY_PREFIX + userId, JSON.stringify(bulletins));
+    } catch (e) {
+        console.error("Local bulletins write error:", e);
     }
 };
 
@@ -94,15 +119,22 @@ const mapStudyFromDB = (row: any): SermonStudy => ({
   isArchived: row.is_archived || false
 });
 
+const mapBulletinFromDB = (row: any): Bulletin => ({
+    id: row.id,
+    userId: row.user_id,
+    dateScanned: row.date_scanned,
+    title: row.title,
+    events: row.events || [],
+    rawSummary: row.raw_summary
+});
+
 // --- Studies (Local First) ---
 export const getStudies = async (): Promise<SermonStudy[]> => {
   const user = getCurrentUser();
   if (!user) return [];
 
-  // 1. Return Local immediately for snappy UI
   const local = getLocalStudies(user.id).filter(s => !s.isArchived);
   
-  // 2. Fetch from Supabase in background
   if (supabase) {
     (async () => {
         try {
@@ -115,11 +147,10 @@ export const getStudies = async (): Promise<SermonStudy[]> => {
 
             if (!error && data) {
                 const cloudStudies = data.map(mapStudyFromDB);
-                // Simple merge: cloud overwrites local if newer
                 localStorage.setItem(STUDIES_KEY_PREFIX + user.id, JSON.stringify(cloudStudies));
             }
         } catch (e) {
-            console.warn("Background cloud fetch failed:", e);
+            console.warn("Background studies sync failed:", e);
         }
     })();
   }
@@ -131,14 +162,12 @@ export const saveStudy = async (study: SermonStudy): Promise<void> => {
   const user = getCurrentUser();
   if (!user) throw new Error("User required");
 
-  // 1. Save Locally First (Critical: ensures no infinite spin blocks the user)
   saveLocalStudy(user.id, study);
 
-  // 2. Sync to Cloud
   if (!supabase) return;
 
   try {
-      await ensureValidSession(); // Force refresh before write
+      await ensureValidSession();
       
       const payload: any = {
           id: study.id,
@@ -152,30 +181,21 @@ export const saveStudy = async (study: SermonStudy): Promise<void> => {
           is_archived: study.isArchived || false
       };
 
-      // Add a 10s timeout to the Supabase operation so it doesn't hang the UI process
       const cloudSavePromise = supabase.from('studies').upsert(payload);
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Database Timeout")), 10000));
       
       await Promise.race([cloudSavePromise, timeoutPromise]);
-      console.log("Cloud save successful");
   } catch (err) {
-      console.warn("Could not sync to cloud, data remains local:", err);
-      // We don't re-throw here because the data is safely in localStorage
+      console.warn("Cloud study sync failed:", err);
   }
 };
 
 export const deleteStudy = async (id: string): Promise<void> => {
     const user = getCurrentUser();
     if (!user) return;
-
-    // 1. Local Delete
     const studies = getLocalStudies(user.id).map(s => s.id === id ? { ...s, isArchived: true } : s);
     localStorage.setItem(STUDIES_KEY_PREFIX + user.id, JSON.stringify(studies));
-
-    // 2. Cloud Delete
-    if (supabase) {
-        await supabase.from('studies').update({ is_archived: true }).eq('id', id);
-    }
+    if (supabase) await supabase.from('studies').update({ is_archived: true }).eq('id', id);
 };
 
 export const getStudyById = async (id: string): Promise<SermonStudy | null> => {
@@ -184,7 +204,6 @@ export const getStudyById = async (id: string): Promise<SermonStudy | null> => {
         const local = getLocalStudies(user.id).find(s => s.id === id);
         if (local) return local;
     }
-    
     if (!supabase) return null;
     const { data } = await supabase.from('studies').select('*').eq('id', id).single();
     return data ? mapStudyFromDB(data) : null;
@@ -195,7 +214,6 @@ export const joinStudy = async (originalStudyId: string): Promise<void> => {
     if (!original) throw new Error("Study not found");
     const user = getCurrentUser();
     if (!user) throw new Error("Must be logged in");
-
     const newStudy: SermonStudy = {
         ...original,
         id: crypto.randomUUID(),
@@ -204,88 +222,110 @@ export const joinStudy = async (originalStudyId: string): Promise<void> => {
         days: original.days.map(d => ({ ...d, isCompleted: false })),
         isArchived: false
     };
-
     await saveStudy(newStudy);
 };
 
-// --- Bulletins ---
+// --- Bulletins (Local First) ---
 export const getBulletins = async (): Promise<Bulletin[]> => {
     const user = getCurrentUser();
     if (!user) return [];
     
-    // Simple local-only fallback for bulletins in this version
-    const local = localStorage.getItem(BULLETINS_KEY_PREFIX + user.id);
-    if (local) return JSON.parse(local);
+    // 1. Return Local immediately
+    const local = getLocalBulletins(user.id);
 
+    // 2. Sync from Cloud in background
     if (supabase) {
-        const { data } = await supabase.from('bulletins').select('*').eq('user_id', user.id);
-        if (data) return data.map(r => ({ ...r, id: r.id, userId: r.user_id, dateScanned: r.date_scanned, events: r.events, rawSummary: r.raw_summary }));
+        (async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('bulletins')
+                    .select('*')
+                    .eq('user_id', user.id)
+                    .order('created_at', { ascending: false });
+
+                if (!error && data) {
+                    const cloudBulletins = data.map(mapBulletinFromDB);
+                    localStorage.setItem(BULLETINS_KEY_PREFIX + user.id, JSON.stringify(cloudBulletins));
+                }
+            } catch (e) {
+                console.warn("Background bulletins sync failed:", e);
+            }
+        })();
     }
-    return [];
+    
+    return local;
 };
 
 export const saveBulletin = async (bulletin: Bulletin): Promise<void> => {
     const user = getCurrentUser();
     if (!user) return;
     
-    // Local
-    const current = await getBulletins();
-    const index = current.findIndex(b => b.id === bulletin.id);
-    if (index >= 0) {
-        current[index] = bulletin;
-    } else {
-        current.unshift(bulletin);
-    }
-    localStorage.setItem(BULLETINS_KEY_PREFIX + user.id, JSON.stringify(current));
+    // 1. Save Locally
+    saveLocalBulletin(user.id, bulletin);
 
-    if (supabase) {
-        await supabase.from('bulletins').upsert({ id: bulletin.id, user_id: user.id, title: bulletin.title, date_scanned: bulletin.dateScanned, raw_summary: bulletin.rawSummary, events: bulletin.events });
+    // 2. Sync to Cloud
+    if (!supabase) return;
+
+    try {
+        await ensureValidSession();
+        
+        const payload = { 
+            id: bulletin.id, 
+            user_id: user.id, 
+            title: bulletin.title, 
+            date_scanned: bulletin.dateScanned, 
+            raw_summary: bulletin.rawSummary, 
+            events: bulletin.events 
+        };
+
+        const cloudSavePromise = supabase.from('bulletins').upsert(payload);
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Database Timeout")), 10000));
+        
+        await Promise.race([cloudSavePromise, timeoutPromise]);
+    } catch (err) {
+        console.warn("Cloud bulletin sync failed:", err);
     }
 };
 
 export const deleteBulletin = async (id: string): Promise<void> => {
     const user = getCurrentUser();
     if (!user) return;
-    const current = (await getBulletins()).filter(b => b.id !== id);
+    const current = getLocalBulletins(user.id).filter(b => b.id !== id);
     localStorage.setItem(BULLETINS_KEY_PREFIX + user.id, JSON.stringify(current));
     if (supabase) await supabase.from('bulletins').delete().eq('id', id);
 };
 
-// Fix: Added deleteEvent to resolve Module '"../services/storageService"' has no exported member 'deleteEvent'.
 export const deleteEvent = async (eventId: string): Promise<void> => {
     const user = getCurrentUser();
     if (!user) return;
     
-    const bulletins = await getBulletins();
-    let updated = false;
+    const bulletins = getLocalBulletins(user.id);
+    let affectedBulletin: Bulletin | null = null;
+    
     const newBulletins = bulletins.map(b => {
         const initialCount = b.events.length;
-        b.events = b.events.filter(e => e.id !== eventId);
-        if (b.events.length !== initialCount) updated = true;
+        const newEvents = b.events.filter(e => e.id !== eventId);
+        if (newEvents.length !== initialCount) {
+            affectedBulletin = { ...b, events: newEvents };
+            return affectedBulletin;
+        }
         return b;
     });
 
-    if (updated) {
+    if (affectedBulletin) {
         localStorage.setItem(BULLETINS_KEY_PREFIX + user.id, JSON.stringify(newBulletins));
         if (supabase) {
-            const affectedBulletin = newBulletins.find(b => {
-                const oldB = bulletins.find(ob => ob.id === b.id);
-                return oldB && oldB.events.length !== b.events.length;
-            });
-            if (affectedBulletin) {
-                await supabase.from('bulletins').update({ events: affectedBulletin.events }).eq('id', affectedBulletin.id);
-            }
+            await supabase.from('bulletins').update({ events: affectedBulletin.events }).eq('id', affectedBulletin.id);
         }
     }
 };
 
-// Fix: Added syncLocalDataToCloud to resolve Module '"../services/storageService"' has no exported member 'syncLocalDataToCloud'.
 export const syncLocalDataToCloud = async (): Promise<{ studies: number; bulletins: number }> => {
     const user = getCurrentUser();
     if (!user || !supabase) return { studies: 0, bulletins: 0 };
 
     const localStudies = getLocalStudies(user.id);
-    const localBulletins = JSON.parse(localStorage.getItem(BULLETINS_KEY_PREFIX + user.id) || '[]');
+    const localBulletins = getLocalBulletins(user.id);
 
     let studiesCount = 0;
     let bulletinsCount = 0;
@@ -294,24 +334,20 @@ export const syncLocalDataToCloud = async (): Promise<{ studies: number; bulleti
         try {
             await saveStudy(study);
             studiesCount++;
-        } catch (e) {
-            console.error("Sync study error", e);
-        }
+        } catch (e) { console.error("Sync study error", e); }
     }
 
     for (const bulletin of localBulletins) {
         try {
             await saveBulletin(bulletin);
             bulletinsCount++;
-        } catch (e) {
-            console.error("Sync bulletin error", e);
-        }
+        } catch (e) { console.error("Sync bulletin error", e); }
     }
 
     return { studies: studiesCount, bulletins: bulletinsCount };
 };
 
-// --- Other sync methods remain same or simplified for performance ---
+// --- Social ---
 export const getCommunityPosts = async (): Promise<Post[]> => {
     if (!supabase) return [];
     try {
@@ -332,9 +368,7 @@ export const getCommunityPosts = async (): Promise<Post[]> => {
             isLikedByCurrentUser: (row.liked_by_users || []).includes(user?.id),
             comments: (row.comments || []).map((c: any) => ({ id: c.id, userId: c.user_id, userName: c.user_name, userAvatar: c.user_avatar, text: c.text, timestamp: c.created_at }))
         }));
-    } catch (e) {
-        return [];
-    }
+    } catch (e) { return []; }
 };
 
 export const getPostsByUserId = async (userId: string): Promise<Post[]> => {
