@@ -1,5 +1,5 @@
 
-import { UserSettings, SermonStudy, DEFAULT_SETTINGS, Bulletin, Post, Comment } from '../types';
+import { UserSettings, SermonStudy, DEFAULT_SETTINGS, Bulletin, Post, Comment, StudyParticipant, StudyDayComment } from '../types';
 import { getCurrentUser, updateUser, ensureValidSession } from './authService';
 import { supabase } from './supabaseClient';
 
@@ -246,6 +246,39 @@ export const joinStudy = async (originalStudyId: string): Promise<void> => {
     if (!original) throw new Error("Study not found in cloud. The author may not have synced it yet.");
     const user = getCurrentUser();
     if (!user) throw new Error("Must be logged in");
+
+    // Check if already a participant
+    if (supabase) {
+        const { data: existing } = await supabase
+            .from('study_participants')
+            .select('id')
+            .eq('study_id', originalStudyId)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (existing) {
+            throw new Error("You've already joined this study!");
+        }
+
+        // Add as participant
+        const { error } = await supabase
+            .from('study_participants')
+            .insert({
+                study_id: originalStudyId,
+                user_id: user.id,
+                user_name: user.name,
+                user_avatar: user.avatar
+            });
+
+        if (error) {
+            console.warn("Failed to add participant, falling back to copy:", error);
+            // Fall back to copying the study if participant table doesn't exist yet
+        } else {
+            return; // Successfully joined as participant
+        }
+    }
+
+    // Fallback: Copy the study (old behavior for backwards compatibility)
     const newStudy: SermonStudy = {
         ...original,
         id: crypto.randomUUID(),
@@ -472,10 +505,330 @@ export const getPostsByUserId = async (userId: string): Promise<Post[]> => {
             .select('*, comments(*)')
             .eq('user_id', userId)
             .order('created_at', { ascending: false });
-        
+
         if (!data) return [];
         return data.map(mapPostFromDB);
     } catch (e) {
         return [];
     }
+};
+
+// --- Study Together Functions ---
+
+export const getStudyParticipants = async (studyId: string): Promise<StudyParticipant[]> => {
+    if (!supabase) return [];
+    try {
+        // Get participants
+        const { data: participants, error: pError } = await supabase
+            .from('study_participants')
+            .select('*')
+            .eq('study_id', studyId)
+            .order('joined_at', { ascending: true });
+
+        if (pError || !participants) return [];
+
+        // Get progress for all participants
+        const { data: progress } = await supabase
+            .from('study_day_progress')
+            .select('user_id, day_number')
+            .eq('study_id', studyId);
+
+        // Map progress to participants
+        const progressMap: Record<string, number[]> = {};
+        (progress || []).forEach((p: any) => {
+            if (!progressMap[p.user_id]) progressMap[p.user_id] = [];
+            progressMap[p.user_id].push(p.day_number);
+        });
+
+        return participants.map((p: any) => ({
+            id: p.id,
+            studyId: p.study_id,
+            userId: p.user_id,
+            userName: p.user_name || 'Unknown',
+            userAvatar: p.user_avatar,
+            joinedAt: p.joined_at,
+            completedDays: progressMap[p.user_id] || []
+        }));
+    } catch (e) {
+        console.error("Failed to get study participants:", e);
+        return [];
+    }
+};
+
+export const markStudyDayComplete = async (studyId: string, dayNumber: number): Promise<void> => {
+    const user = getCurrentUser();
+    if (!user || !supabase) return;
+
+    try {
+        // Check if already completed
+        const { data: existing } = await supabase
+            .from('study_day_progress')
+            .select('id')
+            .eq('study_id', studyId)
+            .eq('user_id', user.id)
+            .eq('day_number', dayNumber)
+            .maybeSingle();
+
+        if (!existing) {
+            await supabase
+                .from('study_day_progress')
+                .insert({
+                    study_id: studyId,
+                    user_id: user.id,
+                    day_number: dayNumber
+                });
+        }
+    } catch (e) {
+        console.warn("Failed to mark day complete:", e);
+    }
+};
+
+export const unmarkStudyDayComplete = async (studyId: string, dayNumber: number): Promise<void> => {
+    const user = getCurrentUser();
+    if (!user || !supabase) return;
+
+    try {
+        await supabase
+            .from('study_day_progress')
+            .delete()
+            .eq('study_id', studyId)
+            .eq('user_id', user.id)
+            .eq('day_number', dayNumber);
+    } catch (e) {
+        console.warn("Failed to unmark day:", e);
+    }
+};
+
+export const getStudyDayComments = async (studyId: string, dayNumber: number): Promise<StudyDayComment[]> => {
+    if (!supabase) return [];
+    try {
+        const { data, error } = await supabase
+            .from('study_day_comments')
+            .select('*')
+            .eq('study_id', studyId)
+            .eq('day_number', dayNumber)
+            .order('created_at', { ascending: true });
+
+        if (error || !data) return [];
+
+        return data.map((c: any) => ({
+            id: c.id,
+            studyId: c.study_id,
+            userId: c.user_id,
+            userName: c.user_name || 'Unknown',
+            userAvatar: c.user_avatar,
+            dayNumber: c.day_number,
+            comment: c.comment,
+            createdAt: c.created_at
+        }));
+    } catch (e) {
+        return [];
+    }
+};
+
+export const addStudyDayComment = async (
+    studyId: string,
+    dayNumber: number,
+    comment: string,
+    studyTitle: string,
+    postToFeed: boolean = true
+): Promise<StudyDayComment | null> => {
+    const user = getCurrentUser();
+    if (!user || !supabase) return null;
+
+    try {
+        let postId: string | null = null;
+
+        // Optionally post to community feed
+        if (postToFeed) {
+            const feedPost: Post = {
+                id: crypto.randomUUID(),
+                userId: user.id,
+                userName: user.name,
+                userAvatar: user.avatar,
+                content: `Day ${dayNumber} reflection on "${studyTitle}": ${comment}`,
+                timestamp: new Date().toISOString(),
+                likes: 0,
+                isLikedByCurrentUser: false,
+                comments: [],
+                type: 'STUDY_SHARE',
+                studyId: studyId,
+                studyData: { title: studyTitle }
+            };
+            await savePost(feedPost);
+            postId = feedPost.id;
+        }
+
+        // Save day comment
+        const { data, error } = await supabase
+            .from('study_day_comments')
+            .insert({
+                study_id: studyId,
+                user_id: user.id,
+                user_name: user.name,
+                user_avatar: user.avatar,
+                day_number: dayNumber,
+                comment: comment,
+                post_id: postId
+            })
+            .select()
+            .single();
+
+        if (error || !data) {
+            console.warn("Failed to save day comment:", error);
+            return null;
+        }
+
+        return {
+            id: data.id,
+            studyId: data.study_id,
+            userId: data.user_id,
+            userName: data.user_name,
+            userAvatar: data.user_avatar,
+            dayNumber: data.day_number,
+            comment: data.comment,
+            createdAt: data.created_at
+        };
+    } catch (e) {
+        console.error("Failed to add study day comment:", e);
+        return null;
+    }
+};
+
+export const isUserStudyParticipant = async (studyId: string): Promise<boolean> => {
+    const user = getCurrentUser();
+    if (!user || !supabase) return false;
+
+    try {
+        const { data } = await supabase
+            .from('study_participants')
+            .select('id')
+            .eq('study_id', studyId)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        return !!data;
+    } catch (e) {
+        return false;
+    }
+};
+
+export const getUserProgressForStudy = async (studyId: string): Promise<number[]> => {
+    const user = getCurrentUser();
+    if (!user || !supabase) return [];
+
+    try {
+        const { data } = await supabase
+            .from('study_day_progress')
+            .select('day_number')
+            .eq('study_id', studyId)
+            .eq('user_id', user.id);
+
+        if (!data) return [];
+        return data.map((d: any) => d.day_number);
+    } catch (e) {
+        return [];
+    }
+};
+
+// Get all studies (owned and joined) with participant info
+export const getStudiesWithParticipants = async (): Promise<SermonStudy[]> => {
+    const user = getCurrentUser();
+    if (!user) return [];
+
+    const allStudies: SermonStudy[] = [];
+    const seenIds = new Set<string>();
+
+    // 1. Get studies the user owns
+    const ownedStudies = await getStudies();
+    for (const study of ownedStudies) {
+        seenIds.add(study.id);
+        allStudies.push(study);
+    }
+
+    // 2. Get studies the user has joined (via study_participants)
+    if (supabase) {
+        try {
+            // Get study IDs where user is a participant
+            const { data: participations } = await supabase
+                .from('study_participants')
+                .select('study_id')
+                .eq('user_id', user.id);
+
+            if (participations && participations.length > 0) {
+                const joinedStudyIds = participations
+                    .map((p: any) => p.study_id)
+                    .filter((id: string) => !seenIds.has(id));
+
+                if (joinedStudyIds.length > 0) {
+                    // Fetch the full study data for joined studies
+                    const { data: joinedStudies } = await supabase
+                        .from('studies')
+                        .select('*')
+                        .in('id', joinedStudyIds)
+                        .neq('is_archived', true);
+
+                    if (joinedStudies) {
+                        for (const row of joinedStudies) {
+                            const study = mapStudyFromDB(row);
+                            seenIds.add(study.id);
+                            allStudies.push(study);
+                        }
+                    }
+                }
+            }
+
+            // 3. Fetch participants for all studies
+            const allStudyIds = Array.from(seenIds);
+            if (allStudyIds.length > 0) {
+                const { data: allParticipants } = await supabase
+                    .from('study_participants')
+                    .select('*')
+                    .in('study_id', allStudyIds);
+
+                // Also get progress data
+                const { data: progressData } = await supabase
+                    .from('study_day_progress')
+                    .select('study_id, user_id, day_number')
+                    .in('study_id', allStudyIds);
+
+                // Build progress map
+                const progressMap: Record<string, Record<string, number[]>> = {};
+                (progressData || []).forEach((p: any) => {
+                    if (!progressMap[p.study_id]) progressMap[p.study_id] = {};
+                    if (!progressMap[p.study_id][p.user_id]) progressMap[p.study_id][p.user_id] = [];
+                    progressMap[p.study_id][p.user_id].push(p.day_number);
+                });
+
+                // Attach participants to studies
+                const participantsByStudy: Record<string, StudyParticipant[]> = {};
+                (allParticipants || []).forEach((p: any) => {
+                    if (!participantsByStudy[p.study_id]) participantsByStudy[p.study_id] = [];
+                    participantsByStudy[p.study_id].push({
+                        id: p.id,
+                        studyId: p.study_id,
+                        userId: p.user_id,
+                        userName: p.user_name || 'Unknown',
+                        userAvatar: p.user_avatar,
+                        joinedAt: p.joined_at,
+                        completedDays: progressMap[p.study_id]?.[p.user_id] || []
+                    });
+                });
+
+                // Attach to studies
+                for (const study of allStudies) {
+                    study.participants = participantsByStudy[study.id] || [];
+                }
+            }
+        } catch (e) {
+            console.warn("Failed to fetch participants:", e);
+        }
+    }
+
+    // Sort by date (newest first)
+    allStudies.sort((a, b) =>
+        new Date(b.dateRecorded).getTime() - new Date(a.dateRecorded).getTime()
+    );
+
+    return allStudies;
 };

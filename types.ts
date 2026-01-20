@@ -56,13 +56,35 @@ export interface DailyStudy {
 export interface SermonStudy {
   id: string;
   userId: string; // Owner
-  sermonTitle: string; 
+  sermonTitle: string;
   preacher?: string;
   dateRecorded: string;
   originalAudioDuration: number; // seconds
   days: DailyStudy[];
   isCompleted: boolean;
   isArchived?: boolean; // New field for soft delete
+  participants?: StudyParticipant[]; // Users doing this study together
+}
+
+export interface StudyParticipant {
+  id: string;
+  studyId: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  joinedAt: string;
+  completedDays: number[]; // Array of day numbers they've completed
+}
+
+export interface StudyDayComment {
+  id: string;
+  studyId: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  dayNumber: number;
+  comment: string;
+  createdAt: string;
 }
 
 export interface ChurchEvent {

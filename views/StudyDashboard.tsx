@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { SermonStudy, User } from '../types';
-import { getStudies, deleteStudy, saveStudy } from '../services/storageService';
+import { SermonStudy, User, StudyParticipant } from '../types';
+import { getStudiesWithParticipants, deleteStudy, saveStudy } from '../services/storageService';
 import { createPost } from '../services/socialService';
 import { getCommunityUsers, toggleFriend, getCurrentUser } from '../services/authService';
 
@@ -9,6 +9,69 @@ interface StudyDashboardProps {
   onSelectStudy: (study: SermonStudy) => void;
   onCreateStudy: (action: 'UPLOAD_AUDIO' | 'SCAN_NOTES' | 'PASTE_TEXT') => void;
 }
+
+// Participant avatar stack component
+const ParticipantAvatars: React.FC<{ participants: StudyParticipant[]; ownerId: string; maxDisplay?: number }> = ({
+    participants,
+    ownerId,
+    maxDisplay = 4
+}) => {
+    const currentUser = getCurrentUser();
+
+    // Build the list: owner first if available, then participants (excluding owner)
+    const displayList: { id: string; name: string; avatar?: string }[] = [];
+
+    // Add owner at the start
+    if (currentUser && currentUser.id === ownerId) {
+        displayList.push({ id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar });
+    }
+
+    // Add participants (exclude owner if they appear in participants)
+    const participantList = participants.filter(p => p.userId !== ownerId);
+    for (const p of participantList) {
+        if (!displayList.find(d => d.id === p.userId)) {
+            displayList.push({ id: p.userId, name: p.userName, avatar: p.userAvatar });
+        }
+    }
+
+    // If owner wasn't added yet (viewing someone else's study), we should still count them
+    const totalCount = new Set([ownerId, ...participants.map(p => p.userId)]).size;
+
+    if (totalCount <= 1) return null; // Don't show if solo
+
+    const toShow = displayList.slice(0, maxDisplay);
+    const remaining = totalCount - toShow.length;
+
+    return (
+        <div className="flex items-center">
+            <div className="flex -space-x-2">
+                {toShow.map((user, i) => (
+                    <div
+                        key={user.id}
+                        className="w-6 h-6 rounded-full border-2 border-gray-800 bg-gray-600 flex items-center justify-center text-[10px] font-bold text-white overflow-hidden"
+                        style={{ zIndex: maxDisplay - i }}
+                        title={user.name}
+                    >
+                        {user.avatar?.startsWith('http') ? (
+                            <img src={user.avatar} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                            user.name?.[0]?.toUpperCase() || '?'
+                        )}
+                    </div>
+                ))}
+                {remaining > 0 && (
+                    <div
+                        className="w-6 h-6 rounded-full border-2 border-gray-800 bg-purple-600 flex items-center justify-center text-[10px] font-bold text-white"
+                        style={{ zIndex: 0 }}
+                    >
+                        +{remaining}
+                    </div>
+                )}
+            </div>
+            <span className="ml-2 text-xs text-gray-400">{totalCount} studying</span>
+        </div>
+    );
+};
 
 const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreateStudy }) => {
   const [studies, setStudies] = useState<SermonStudy[]>([]);
@@ -29,7 +92,7 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
   const loadStudies = async () => {
       setLoading(true);
       try {
-          const data = await getStudies();
+          const data = await getStudiesWithParticipants();
           setStudies(data);
       } catch (e) {
           console.error("Dashboard load error:", e);
@@ -192,6 +255,15 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
                         {study.preacher && <span className="text-gray-500 italic"> • {study.preacher}</span>}
                     </span>
                 </div>
+                {/* Participant Avatars */}
+                {study.participants && study.participants.length > 0 && (
+                    <div className="mb-3">
+                        <ParticipantAvatars
+                            participants={study.participants}
+                            ownerId={study.userId}
+                        />
+                    </div>
+                )}
                 <div className="mt-4">
                     <div className="flex justify-between items-end mb-1.5">
                         <span className={`text-[10px] font-bold uppercase tracking-wider ${isFullyComplete ? 'text-green-400' : 'text-purple-400'}`}>

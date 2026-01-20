@@ -106,6 +106,69 @@ create table if not exists public.comments (
   created_at timestamp with time zone default now()
 );
 
+-- 7. STUDY PARTICIPANTS (for Study Together feature)
+create table if not exists public.study_participants (
+  id uuid primary key default gen_random_uuid(),
+  study_id uuid references public.studies on delete cascade not null,
+  user_id uuid references auth.users on delete cascade not null,
+  user_name text,
+  user_avatar text,
+  joined_at timestamp with time zone default now(),
+  unique(study_id, user_id)
+);
+
+-- 8. STUDY DAY PROGRESS (individual progress per user per day)
+create table if not exists public.study_day_progress (
+  id uuid primary key default gen_random_uuid(),
+  study_id uuid references public.studies on delete cascade not null,
+  user_id uuid references auth.users on delete cascade not null,
+  day_number integer not null,
+  completed_at timestamp with time zone default now(),
+  unique(study_id, user_id, day_number)
+);
+
+-- 9. STUDY DAY COMMENTS (comments on each day)
+create table if not exists public.study_day_comments (
+  id uuid primary key default gen_random_uuid(),
+  study_id uuid references public.studies on delete cascade not null,
+  user_id uuid references auth.users on delete cascade not null,
+  user_name text,
+  user_avatar text,
+  day_number integer not null,
+  comment text not null,
+  post_id uuid references public.posts on delete set null,
+  created_at timestamp with time zone default now()
+);
+
+-- RLS Policies for Study Together
+alter table public.study_participants enable row level security;
+alter table public.study_day_progress enable row level security;
+alter table public.study_day_comments enable row level security;
+
+-- study_participants: Anyone can see, users manage their own
+drop policy if exists "study_participants_select" on public.study_participants;
+create policy "study_participants_select" on public.study_participants for select using (true);
+drop policy if exists "study_participants_insert" on public.study_participants;
+create policy "study_participants_insert" on public.study_participants for insert with check (auth.uid() = user_id);
+drop policy if exists "study_participants_delete" on public.study_participants;
+create policy "study_participants_delete" on public.study_participants for delete using (auth.uid() = user_id);
+
+-- study_day_progress: Anyone can see, users manage their own
+drop policy if exists "study_day_progress_select" on public.study_day_progress;
+create policy "study_day_progress_select" on public.study_day_progress for select using (true);
+drop policy if exists "study_day_progress_insert" on public.study_day_progress;
+create policy "study_day_progress_insert" on public.study_day_progress for insert with check (auth.uid() = user_id);
+drop policy if exists "study_day_progress_delete" on public.study_day_progress;
+create policy "study_day_progress_delete" on public.study_day_progress for delete using (auth.uid() = user_id);
+
+-- study_day_comments: Anyone can see, users manage their own
+drop policy if exists "study_day_comments_select" on public.study_day_comments;
+create policy "study_day_comments_select" on public.study_day_comments for select using (true);
+drop policy if exists "study_day_comments_insert" on public.study_day_comments;
+create policy "study_day_comments_insert" on public.study_day_comments for insert with check (auth.uid() = user_id);
+drop policy if exists "study_day_comments_delete" on public.study_day_comments;
+create policy "study_day_comments_delete" on public.study_day_comments for delete using (auth.uid() = user_id);
+
 -- Force reload schema cache (PostgREST)
 NOTIFY pgrst, 'reload schema';`;
 
