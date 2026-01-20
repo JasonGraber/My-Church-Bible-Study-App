@@ -265,12 +265,19 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
                 </div>
             ) : (
                 <div className="flex items-center space-x-4">
-                    <div className={`h-14 w-14 rounded-full ${currentUser?.avatar ? 'bg-black' : 'bg-purple-600'} flex-shrink-0 flex items-center justify-center text-white font-bold text-xl overflow-hidden shadow-md`}>
+                    <div
+                        className={`h-14 w-14 rounded-full ${currentUser?.avatar ? 'bg-black' : 'bg-purple-600'} flex-shrink-0 flex items-center justify-center text-white font-bold text-xl overflow-hidden shadow-md cursor-pointer hover:ring-2 hover:ring-purple-500 transition-all`}
+                        onClick={() => currentUser?.id && onViewProfile?.(currentUser.id)}
+                    >
                         {currentUser?.avatar ? <img src={currentUser.avatar} className="w-full h-full object-cover" /> : currentUser?.name?.charAt(0)}
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div
+                        className="flex-1 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => currentUser?.id && onViewProfile?.(currentUser.id)}
+                    >
                         <p className="text-white font-bold truncate">{currentUser?.name}</p>
                         <p className="text-xs text-gray-500 truncate">{currentUser?.email}</p>
+                        {currentUser?.bio && <p className="text-xs text-gray-400 italic mt-1 truncate">"{currentUser.bio}"</p>}
                     </div>
                     <button onClick={() => setIsEditingProfile(true)} className="text-xs text-purple-400 hover:underline">Edit</button>
                 </div>
