@@ -386,6 +386,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
             <button onClick={() => onShowLegal(AppView.PRIVACY_POLICY)} className="text-[10px] text-gray-500 hover:text-gray-300">Privacy Policy</button>
             <button onClick={() => onShowLegal(AppView.TERMS_OF_SERVICE)} className="text-[10px] text-gray-500 hover:text-gray-300">Terms of Service</button>
         </div>
+
+        {/* Version */}
+        <div className="text-center text-[10px] text-gray-600 pt-2">
+            v{(process.env.COMMIT_SHA || 'dev').substring(0, 7)}
+        </div>
       </div>
 
       {/* SQL Migration Modal */}

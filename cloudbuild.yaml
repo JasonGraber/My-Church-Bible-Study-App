@@ -9,6 +9,7 @@ steps:
           --build-arg GEMINI_API_KEY=$$GEMINI_API_KEY \
           --build-arg SUPABASE_URL=$$SUPABASE_URL \
           --build-arg SUPABASE_KEY=$$SUPABASE_KEY \
+          --build-arg COMMIT_SHA=${COMMIT_SHA} \
           -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA} \
           -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:latest \
           .
