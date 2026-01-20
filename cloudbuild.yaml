@@ -46,7 +46,7 @@ availableSecrets:
 # Substitution variables (configure in Cloud Build trigger)
 substitutions:
   _SERVICE_NAME: my-church-bible-study
-  _REGION: us-central1
+  _REGION: us-west1
   _REPOSITORY: cloud-run-source-deploy
 
 options:
