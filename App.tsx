@@ -45,15 +45,24 @@ const App: React.FC = () => {
     }
 
     const init = async () => {
+        // Add timeout to prevent infinite loading if Supabase is slow/unresponsive
+        const timeoutPromise = new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error('Auth timeout')), 10000)
+        );
+
         try {
-            const sessionUser = await initializeSession();
+            const sessionUser = await Promise.race([initializeSession(), timeoutPromise]);
             if (sessionUser) {
                 handleLogin(sessionUser);
             }
         } catch (e) {
             console.error("Session init failed, forcing logout clean up", e);
-            // If initialization fails (e.g. bad token), clear the session to prevent a loop
-            await supabase.auth.signOut();
+            // If initialization fails (e.g. bad token, timeout), clear the session
+            try {
+                await supabase?.auth?.signOut();
+            } catch (signOutErr) {
+                console.warn("Sign out also failed:", signOutErr);
+            }
             setUser(null);
         } finally {
             setAuthLoading(false);
@@ -62,21 +71,24 @@ const App: React.FC = () => {
     init();
 
     // Listen for Auth Changes (e.g. returning from Google OAuth redirect, token refresh)
+    if (!supabase) {
+        console.warn("Supabase not configured, skipping auth listener");
+        return;
+    }
+
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
         // console.log("Auth event:", event);
 
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             if (session) {
                 // IMPORTANT: Check cached user to avoid flashing loading screen on token refresh or app resume
-                // The 'user' state variable in this closure is stale (always null), so we use getUser()
-                // Fixed: Use getUser() instead of getCurrentUser()
                 const cachedUser = getUser();
-                
+
                 // Only show blocking loader if we don't have a user cached
                 if (!cachedUser) {
                     setAuthLoading(true);
                 }
-                
+
                 try {
                     const sessionUser = await initializeSession();
                     if (sessionUser) {
@@ -85,7 +97,11 @@ const App: React.FC = () => {
                 } catch (e) {
                     console.error("Error refreshing session:", e);
                     // Force clean up on refresh error
-                    await supabase.auth.signOut();
+                    try {
+                        await supabase?.auth?.signOut();
+                    } catch (signOutErr) {
+                        console.warn("Sign out failed:", signOutErr);
+                    }
                     setUser(null);
                 } finally {
                     setAuthLoading(false);
@@ -105,7 +121,7 @@ const App: React.FC = () => {
     });
 
     return () => {
-        authListener.subscription.unsubscribe();
+        authListener?.subscription?.unsubscribe();
     };
 
   }, []);
