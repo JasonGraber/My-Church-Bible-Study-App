@@ -36,7 +36,7 @@ const App: React.FC = () => {
     if (viewParam === 'privacy') {
         setCurrentView(AppView.PRIVACY_POLICY);
         setAuthLoading(false);
-        return; 
+        return;
     }
     if (viewParam === 'terms') {
         setCurrentView(AppView.TERMS_OF_SERVICE);
@@ -44,68 +44,97 @@ const App: React.FC = () => {
         return;
     }
 
+    let isInitializing = false;
+
+    const initWithTimeout = async (): Promise<User | null> => {
+        const timeoutPromise = new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error('Auth timeout')), 10000)
+        );
+        return Promise.race([initializeSession(), timeoutPromise]);
+    };
+
     const init = async () => {
+        if (isInitializing) return;
+        isInitializing = true;
+
         try {
-            const sessionUser = await initializeSession();
+            const sessionUser = await initWithTimeout();
             if (sessionUser) {
                 handleLogin(sessionUser);
             }
         } catch (e) {
-            console.error("Session init failed, forcing logout clean up", e);
-            // If initialization fails (e.g. bad token), clear the session to prevent a loop
-            await supabase.auth.signOut();
+            console.error("Session init failed:", e);
+            // Clear any bad session state
+            try {
+                await supabase?.auth?.signOut();
+            } catch (signOutErr) {
+                // Ignore sign out errors
+            }
             setUser(null);
         } finally {
+            isInitializing = false;
             setAuthLoading(false);
         }
     };
     init();
 
     // Listen for Auth Changes (e.g. returning from Google OAuth redirect, token refresh)
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-        // console.log("Auth event:", event);
+    if (!supabase) {
+        console.warn("Supabase not configured, skipping auth listener");
+        return;
+    }
 
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-            if (session) {
-                // IMPORTANT: Check cached user to avoid flashing loading screen on token refresh or app resume
-                // The 'user' state variable in this closure is stale (always null), so we use getUser()
-                // Fixed: Use getUser() instead of getCurrentUser()
+            if (session && !isInitializing) {
+                // Use cached user to avoid blocking UI on token refresh
                 const cachedUser = getUser();
-                
-                // Only show blocking loader if we don't have a user cached
+
+                // For TOKEN_REFRESHED, don't show loading or interrupt user if they're already logged in
+                if (event === 'TOKEN_REFRESHED' && cachedUser) {
+                    // Silently refresh in background, don't interrupt the user
+                    try {
+                        const sessionUser = await initializeSession();
+                        if (sessionUser) {
+                            setUser(sessionUser);
+                        }
+                    } catch (e) {
+                        // Silently fail on background refresh - don't log user out
+                        console.warn("Background token refresh failed:", e);
+                    }
+                    return;
+                }
+
+                // Only show loading for SIGNED_IN (e.g., OAuth redirect)
                 if (!cachedUser) {
                     setAuthLoading(true);
                 }
-                
+
+                isInitializing = true;
                 try {
-                    const sessionUser = await initializeSession();
+                    const sessionUser = await initWithTimeout();
                     if (sessionUser) {
                         handleLogin(sessionUser);
                     }
                 } catch (e) {
-                    console.error("Error refreshing session:", e);
-                    // Force clean up on refresh error
-                    await supabase.auth.signOut();
-                    setUser(null);
+                    console.error("Error during sign in:", e);
+                    // Only clear user if they weren't already logged in
+                    if (!cachedUser) {
+                        setUser(null);
+                    }
                 } finally {
+                    isInitializing = false;
                     setAuthLoading(false);
                 }
-            } else {
-                 setAuthLoading(false);
             }
         } else if (event === 'SIGNED_OUT') {
             handleLogout();
             setAuthLoading(false);
-        } else {
-            // For other events like INITIAL_SESSION where session might be null
-            if (!session && authLoading) {
-                 setAuthLoading(false);
-            }
         }
     });
 
     return () => {
-        authListener.subscription.unsubscribe();
+        authListener?.subscription?.unsubscribe();
     };
 
   }, []);

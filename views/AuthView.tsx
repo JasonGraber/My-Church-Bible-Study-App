@@ -169,6 +169,11 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onShowLegal }) => {
             <span>•</span>
             <button onClick={() => onShowLegal(AppView.TERMS_OF_SERVICE)} className="hover:text-gray-300">Terms of Service</button>
         </div>
+
+        {/* Version */}
+        <div className="text-center text-xs text-gray-600">
+            v{(process.env.COMMIT_SHA || 'dev').substring(0, 7)}
+        </div>
       </div>
     </div>
   );

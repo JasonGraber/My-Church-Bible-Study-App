@@ -124,6 +124,17 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
         return currentUser?.friends?.includes(userId);
     };
 
+    const isOwnPost = (userId: string) => {
+        return currentUser?.id === userId;
+    };
+
+    // Filter feed to only show posts from friends and own posts
+    const filteredPosts = posts.filter(post =>
+        isOwnPost(post.userId) || isFriend(post.userId)
+    );
+
+    const hasFriends = currentUser?.friends && currentUser.friends.length > 0;
+
     return (
         <div className="p-0 h-full overflow-y-auto pb-24 max-w-md mx-auto bg-gray-900 relative">
             {/* Header */}
@@ -151,11 +162,30 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
                     {/* Feed */}
                     {loading ? (
                         <div className="p-8 text-center text-gray-500">Loading feed...</div>
+                    ) : !hasFriends ? (
+                        /* Empty state when user has no friends */
+                        <div className="p-8 text-center">
+                            <div className="bg-gray-800/50 rounded-2xl p-8 border border-gray-700 max-w-sm mx-auto">
+                                <div className="h-16 w-16 bg-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                    </svg>
+                                </div>
+                                <h3 className="text-white font-bold text-lg mb-2">Connect with Friends</h3>
+                                <p className="text-gray-400 text-sm mb-6">Add friends to see their Bible studies and share your journey together.</p>
+                                <button
+                                    onClick={() => setActiveTab('people')}
+                                    className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-6 py-3 rounded-xl transition-colors"
+                                >
+                                    Find Friends
+                                </button>
+                            </div>
+                        </div>
                     ) : (
                         <div className="pb-4">
-                            {posts.length === 0 ? (
-                                <div className="p-12 text-center text-gray-600 italic">No posts yet. Start the conversation!</div>
-                            ) : posts.map(post => (
+                            {filteredPosts.length === 0 ? (
+                                <div className="p-12 text-center text-gray-600 italic">No posts from friends yet. Check back soon!</div>
+                            ) : filteredPosts.map(post => (
                                 <div key={post.id} className="border-b border-gray-800 bg-gray-900 mb-2">
                                     {/* Post Header */}
                                     <div className="flex items-center p-4">
@@ -212,31 +242,34 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
                                                     </div>
                                                 </div>
                                                 
-                                                <div className="mt-4 flex items-center justify-between relative z-10 border-t border-gray-700/50 pt-3">
-                                                    <span className="text-xs text-gray-400">Join to add to your studies</span>
-                                                    <button 
-                                                        onClick={(e) => { e.stopPropagation(); handleJoinStudy(post.studyId!); }}
-                                                        disabled={joiningMap[post.studyId!]}
-                                                        className="bg-white text-gray-900 text-xs font-bold px-4 py-1.5 rounded-full hover:bg-gray-200 transition-colors shadow-sm disabled:opacity-70 flex items-center"
-                                                    >
-                                                        {joiningMap[post.studyId!] ? (
-                                                            <>
-                                                                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-gray-900" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                                </svg>
-                                                                Joining...
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                                                </svg>
-                                                                Join Study
-                                                            </>
-                                                        )}
-                                                    </button>
-                                                </div>
+                                                {/* Only show Join button if it's not the user's own post */}
+                                                {!isOwnPost(post.userId) && (
+                                                    <div className="mt-4 flex items-center justify-between relative z-10 border-t border-gray-700/50 pt-3">
+                                                        <span className="text-xs text-gray-400">Join to add to your studies</span>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleJoinStudy(post.studyId!); }}
+                                                            disabled={joiningMap[post.studyId!]}
+                                                            className="bg-white text-gray-900 text-xs font-bold px-4 py-1.5 rounded-full hover:bg-gray-200 transition-colors shadow-sm disabled:opacity-70 flex items-center"
+                                                        >
+                                                            {joiningMap[post.studyId!] ? (
+                                                                <>
+                                                                    <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-gray-900" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                    </svg>
+                                                                    Joining...
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                                                    </svg>
+                                                                    Join Study
+                                                                </>
+                                                            )}
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                     </div>

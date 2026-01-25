@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { SermonStudy, AppView, DailyStudy } from '../types';
-import { saveStudy } from '../services/storageService';
+import { SermonStudy, AppView, DailyStudy, StudyParticipant, StudyDayComment } from '../types';
+import { saveStudy, getStudyParticipants, markStudyDayComplete, unmarkStudyDayComplete, isUserStudyParticipant, getUserProgressForStudy, getStudyDayComments, addStudyDayComment } from '../services/storageService';
+import { getCurrentUser } from '../services/authService';
 
 interface StudyDetailProps {
   study: SermonStudy;
@@ -27,16 +28,56 @@ const BOOK_MAP: Record<string, string> = {
 const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }) => {
   const [study, setStudy] = useState<SermonStudy>(initialStudy);
   const [activeDay, setActiveDay] = useState<number>(0);
+  const [participants, setParticipants] = useState<StudyParticipant[]>([]);
+  const [isParticipant, setIsParticipant] = useState(false);
+  const [myProgress, setMyProgress] = useState<number[]>([]);
+  const [showParticipants, setShowParticipants] = useState(false);
+  const [dayComments, setDayComments] = useState<StudyDayComment[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
+
+  const currentUser = getCurrentUser();
+  const isOwner = currentUser?.id === study.userId;
 
   useEffect(() => {
     setStudy(initialStudy);
   }, [initialStudy]);
 
+  // Load participants and check if current user is a participant
+  useEffect(() => {
+    const loadParticipantData = async () => {
+      const [participantList, isUserParticipant, userProgress] = await Promise.all([
+        getStudyParticipants(study.id),
+        isUserStudyParticipant(study.id),
+        getUserProgressForStudy(study.id)
+      ]);
+      setParticipants(participantList);
+      setIsParticipant(isUserParticipant);
+      setMyProgress(userProgress);
+    };
+    loadParticipantData();
+  }, [study.id]);
+
+  // Load comments for current day
+  useEffect(() => {
+    const loadComments = async () => {
+      const currentDayNumber = study.days[activeDay]?.day;
+      if (currentDayNumber) {
+        const comments = await getStudyDayComments(study.id, currentDayNumber);
+        setDayComments(comments);
+      }
+    };
+    loadComments();
+  }, [study.id, activeDay]);
+
   if (!study) return null;
 
   const currentDay = study.days[activeDay];
 
-  const handleToggleDayComplete = () => {
+  const handleToggleDayComplete = async () => {
+    const currentDayNumber = study.days[activeDay].day;
+    const wasCompleted = study.days[activeDay].isCompleted;
+
     const updatedDays = study.days.map((d, idx) => {
         if (idx === activeDay) {
             return { ...d, isCompleted: !d.isCompleted };
@@ -46,14 +87,55 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
 
     const allComplete = updatedDays.every(d => d.isCompleted);
 
-    const updatedStudy = { 
-        ...study, 
+    const updatedStudy = {
+        ...study,
         days: updatedDays,
         isCompleted: allComplete
     };
 
     setStudy(updatedStudy);
-    saveStudy(updatedStudy);
+
+    // If user is owner, save to their study record
+    if (isOwner) {
+      await saveStudy(updatedStudy);
+    }
+
+    // If user is a participant (or owner with participants), sync to participant progress
+    if (isParticipant || participants.length > 0) {
+      if (wasCompleted) {
+        await unmarkStudyDayComplete(study.id, currentDayNumber);
+        setMyProgress(prev => prev.filter(d => d !== currentDayNumber));
+      } else {
+        await markStudyDayComplete(study.id, currentDayNumber);
+        setMyProgress(prev => [...prev, currentDayNumber]);
+      }
+      // Refresh participants to show updated progress
+      const updated = await getStudyParticipants(study.id);
+      setParticipants(updated);
+    }
+  };
+
+  const handlePostComment = async () => {
+    if (!newComment.trim() || postingComment) return;
+    setPostingComment(true);
+    try {
+      const currentDayNumber = study.days[activeDay].day;
+      const result = await addStudyDayComment(
+        study.id,
+        currentDayNumber,
+        newComment.trim(),
+        study.sermonTitle,
+        true // Post to community feed
+      );
+      if (result) {
+        setDayComments(prev => [...prev, result]);
+        setNewComment('');
+      }
+    } catch (e) {
+      console.error("Failed to post comment:", e);
+    } finally {
+      setPostingComment(false);
+    }
   };
 
   const createYouVersionLink = (reference: string) => {
@@ -106,7 +188,110 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
         </div>
         <h1 className="text-2xl font-serif font-bold text-white leading-tight">{study.sermonTitle}</h1>
         <p className="text-sm text-purple-400 mt-1">{study.preacher}</p>
+
+        {/* Participants indicator */}
+        {participants.length > 0 && (
+          <button
+            onClick={() => setShowParticipants(!showParticipants)}
+            className="mt-3 flex items-center text-gray-400 hover:text-white transition-colors"
+          >
+            <div className="flex -space-x-2 mr-2">
+              {participants.slice(0, 4).map((p, i) => (
+                <div
+                  key={p.id}
+                  className="w-6 h-6 rounded-full border-2 border-gray-800 bg-gray-600 flex items-center justify-center text-[10px] font-bold text-white overflow-hidden"
+                  style={{ zIndex: 4 - i }}
+                >
+                  {p.userAvatar?.startsWith('http') ? (
+                    <img src={p.userAvatar} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    p.userName?.[0]?.toUpperCase() || '?'
+                  )}
+                </div>
+              ))}
+              {participants.length > 4 && (
+                <div className="w-6 h-6 rounded-full border-2 border-gray-800 bg-purple-600 flex items-center justify-center text-[10px] font-bold text-white">
+                  +{participants.length - 4}
+                </div>
+              )}
+            </div>
+            <span className="text-xs">{participants.length + 1} studying together</span>
+            <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ml-1 transition-transform ${showParticipants ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        )}
       </div>
+
+      {/* Participants Panel */}
+      {showParticipants && participants.length > 0 && (
+        <div className="bg-gray-800/80 border-b border-gray-700 p-4">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Study Participants</h4>
+          <div className="space-y-3">
+            {/* Owner */}
+            {isOwner && currentUser && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-sm font-bold text-white overflow-hidden mr-3 ring-2 ring-purple-500">
+                    {currentUser.avatar?.startsWith('http') ? (
+                      <img src={currentUser.avatar} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      currentUser.name?.[0]?.toUpperCase() || '?'
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-white font-medium text-sm">{currentUser.name} <span className="text-purple-400 text-xs">(You - Owner)</span></p>
+                  </div>
+                </div>
+                <div className="flex items-center text-xs text-gray-400">
+                  <span className="mr-1">{study.days.filter(d => d.isCompleted).length}/{study.days.length}</span>
+                  <div className="flex">
+                    {study.days.map((d, i) => (
+                      <div
+                        key={i}
+                        className={`w-2 h-2 rounded-full mx-0.5 ${d.isCompleted ? 'bg-green-500' : 'bg-gray-600'}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Participants */}
+            {participants.map(p => (
+              <div key={p.id} className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-sm font-bold text-white overflow-hidden mr-3">
+                    {p.userAvatar?.startsWith('http') ? (
+                      <img src={p.userAvatar} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      p.userName?.[0]?.toUpperCase() || '?'
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-white font-medium text-sm">
+                      {p.userName}
+                      {currentUser?.id === p.userId && <span className="text-purple-400 text-xs ml-1">(You)</span>}
+                    </p>
+                    <p className="text-gray-500 text-xs">Joined {new Date(p.joinedAt).toLocaleDateString()}</p>
+                  </div>
+                </div>
+                <div className="flex items-center text-xs text-gray-400">
+                  <span className="mr-1">{p.completedDays.length}/{study.days.length}</span>
+                  <div className="flex">
+                    {study.days.map((d, i) => (
+                      <div
+                        key={i}
+                        className={`w-2 h-2 rounded-full mx-0.5 ${p.completedDays.includes(d.day) ? 'bg-green-500' : 'bg-gray-600'}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Day Scroller */}
       <div className="flex overflow-x-auto py-4 px-6 space-x-3 no-scrollbar border-b border-gray-800 bg-gray-900/95 backdrop-blur sticky top-[120px] z-10">
@@ -209,7 +394,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
             {/* Day Completion Toggle */}
             <button
                 onClick={handleToggleDayComplete}
-                className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg flex items-center justify-center space-x-2 mb-8 ${
+                className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg flex items-center justify-center space-x-2 ${
                     currentDay.isCompleted
                     ? 'bg-green-900/20 text-green-400 border border-green-800 hover:bg-green-900/30'
                     : 'bg-white text-gray-900 hover:bg-gray-100'
@@ -226,6 +411,69 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
                     <span>Mark Day {currentDay.day} Complete</span>
                 )}
             </button>
+
+            {/* Day Comments Section */}
+            <div className="mt-8 border-t border-gray-800 pt-6">
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                </svg>
+                Day {currentDay.day} Discussion
+                {dayComments.length > 0 && <span className="ml-2 text-purple-400">({dayComments.length})</span>}
+              </h3>
+
+              {/* Comments List */}
+              {dayComments.length > 0 && (
+                <div className="space-y-4 mb-4">
+                  {dayComments.map(comment => (
+                    <div key={comment.id} className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                      <div className="flex items-start space-x-3">
+                        <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-sm font-bold text-white overflow-hidden flex-shrink-0">
+                          {comment.userAvatar?.startsWith('http') ? (
+                            <img src={comment.userAvatar} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            comment.userName?.[0]?.toUpperCase() || '?'
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-white font-medium text-sm">{comment.userName}</span>
+                            <span className="text-gray-500 text-xs">
+                              {new Date(comment.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </span>
+                          </div>
+                          <p className="text-gray-300 text-sm mt-1">{comment.comment}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add Comment */}
+              <div className="bg-gray-800/30 rounded-xl p-4 border border-gray-700/30">
+                <p className="text-xs text-gray-500 mb-2">Share your thoughts on today's study (will post to your Community feed)</p>
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    placeholder="Share a reflection..."
+                    className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+                    onKeyDown={(e) => e.key === 'Enter' && handlePostComment()}
+                  />
+                  <button
+                    onClick={handlePostComment}
+                    disabled={!newComment.trim() || postingComment}
+                    className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:text-gray-500 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm"
+                  >
+                    {postingComment ? '...' : 'Post'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="h-8"></div>
         </div>
       </div>
     </div>

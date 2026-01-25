@@ -21,94 +21,6 @@ interface SearchResult {
   serviceTimes?: string[];
 }
 
-const REQUIRED_SQL = `-- 1. PROFILES
-create table if not exists public.profiles (
-  id uuid references auth.users on delete cascade not null primary key,
-  email text,
-  name text,
-  avatar text,
-  bio text,
-  friends text[] default '{}'::text[],
-  created_at timestamp with time zone default now()
-);
-alter table public.profiles add column if not exists bio text;
-alter table public.profiles add column if not exists friends text[] default '{}'::text[];
-
--- 2. USER SETTINGS
-create table if not exists public.user_settings (
-  user_id uuid references auth.users on delete cascade not null primary key,
-  church_name text,
-  church_location jsonb,
-  study_duration integer default 5,
-  study_length text default '15 mins',
-  supporting_references_count integer default 2,
-  notification_time text default '07:00',
-  service_times text[] default '{}'::text[],
-  geofence_enabled boolean default false,
-  sunday_reminder_enabled boolean default true,
-  updated_at timestamp with time zone default now()
-);
-
--- 3. STUDIES
-create table if not exists public.studies (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users not null,
-  sermon_title text,
-  preacher text,
-  date_recorded timestamp with time zone default now(),
-  original_audio_duration integer default 0,
-  days jsonb not null default '[]'::jsonb,
-  is_completed boolean default false,
-  is_archived boolean default false,
-  created_at timestamp with time zone default now()
-);
-alter table public.studies add column if not exists preacher text;
-alter table public.studies add column if not exists is_archived boolean default false;
-alter table public.studies add column if not exists original_audio_duration integer default 0;
-
--- 4. BULLETINS
-create table if not exists public.bulletins (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users not null,
-  title text,
-  date_scanned timestamp with time zone default now(),
-  raw_summary text,
-  events jsonb not null default '[]'::jsonb,
-  created_at timestamp with time zone default now()
-);
-
--- 5. SOCIAL POSTS
-create table if not exists public.posts (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users not null,
-  user_name text,
-  user_avatar text,
-  content text,
-  type text default 'STUDY_SHARE',
-  study_id uuid,
-  study_data jsonb,
-  likes integer default 0,
-  liked_by_users uuid[] default '{}'::uuid[],
-  created_at timestamp with time zone default now()
-);
-alter table public.posts add column if not exists study_id uuid;
-alter table public.posts add column if not exists study_data jsonb;
-alter table public.posts add column if not exists type text default 'STUDY_SHARE';
-
--- 6. COMMENTS
-create table if not exists public.comments (
-  id uuid primary key default gen_random_uuid(),
-  post_id uuid references public.posts on delete cascade,
-  user_id uuid references auth.users not null,
-  user_name text,
-  user_avatar text,
-  text text,
-  created_at timestamp with time zone default now()
-);
-
--- Force reload schema cache (PostgREST)
-NOTIFY pgrst, 'reload schema';`;
-
 const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowLegal, onViewProfile }) => {
   const [localSettings, setLocalSettings] = useState<UserSettings>(() => getSettings());
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -120,7 +32,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [showDbInfo, setShowDbInfo] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
@@ -214,11 +125,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
   const incrementRef = () => setLocalSettings(prev => ({...prev, supportingReferencesCount: Math.min((prev.supportingReferencesCount || 0) + 1, 5)}));
   const decrementRef = () => setLocalSettings(prev => ({...prev, supportingReferencesCount: Math.max((prev.supportingReferencesCount || 0) - 1, 0)}));
 
-  const copySQL = () => {
-      navigator.clipboard.writeText(REQUIRED_SQL);
-      alert("SQL copied to clipboard!");
-  }
-
   const handleSync = async () => {
       if (!confirm("Upload local history to cloud?")) return;
       setIsSyncing(true);
@@ -265,12 +171,19 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
                 </div>
             ) : (
                 <div className="flex items-center space-x-4">
-                    <div className={`h-14 w-14 rounded-full ${currentUser?.avatar ? 'bg-black' : 'bg-purple-600'} flex-shrink-0 flex items-center justify-center text-white font-bold text-xl overflow-hidden shadow-md`}>
+                    <div
+                        className={`h-14 w-14 rounded-full ${currentUser?.avatar ? 'bg-black' : 'bg-purple-600'} flex-shrink-0 flex items-center justify-center text-white font-bold text-xl overflow-hidden shadow-md cursor-pointer hover:ring-2 hover:ring-purple-500 transition-all`}
+                        onClick={() => currentUser?.id && onViewProfile?.(currentUser.id)}
+                    >
                         {currentUser?.avatar ? <img src={currentUser.avatar} className="w-full h-full object-cover" /> : currentUser?.name?.charAt(0)}
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div
+                        className="flex-1 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => currentUser?.id && onViewProfile?.(currentUser.id)}
+                    >
                         <p className="text-white font-bold truncate">{currentUser?.name}</p>
                         <p className="text-xs text-gray-500 truncate">{currentUser?.email}</p>
+                        {currentUser?.bio && <p className="text-xs text-gray-400 italic mt-1 truncate">"{currentUser.bio}"</p>}
                     </div>
                     <button onClick={() => setIsEditingProfile(true)} className="text-xs text-purple-400 hover:underline">Edit</button>
                 </div>
@@ -371,14 +284,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
           </div>
         </div>
         
-        {/* Sync & DB Tools */}
-        <div className="pt-6 border-t border-gray-800 space-y-4">
+        {/* Sync */}
+        <div className="pt-6 border-t border-gray-800">
             <button onClick={handleSync} disabled={isSyncing} className="w-full bg-purple-600 text-white py-3 rounded-xl font-bold shadow-lg disabled:opacity-50">
                 {isSyncing ? "Syncing..." : "Sync Local Data to Cloud"}
             </button>
-            <button onClick={() => setShowDbInfo(true)} className="w-full text-center text-xs text-gray-600 hover:text-purple-400">
-                 Supabase Migration Tool
-             </button>
         </div>
 
         {/* Legal Footer */}
@@ -386,28 +296,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
             <button onClick={() => onShowLegal(AppView.PRIVACY_POLICY)} className="text-[10px] text-gray-500 hover:text-gray-300">Privacy Policy</button>
             <button onClick={() => onShowLegal(AppView.TERMS_OF_SERVICE)} className="text-[10px] text-gray-500 hover:text-gray-300">Terms of Service</button>
         </div>
-      </div>
 
-      {/* SQL Migration Modal */}
-      {showDbInfo && (
-          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
-              <div className="bg-gray-800 w-full max-w-lg rounded-2xl border border-gray-700 shadow-2xl flex flex-col max-h-[80vh]">
-                  <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                      <h3 className="font-bold text-white">Database Migration SQL</h3>
-                      <button onClick={() => setShowDbInfo(false)} className="text-gray-400 hover:text-white">Close</button>
-                  </div>
-                  <div className="p-4 overflow-y-auto flex-1 text-sm text-gray-300 space-y-4">
-                      <p className="text-xs">Run this SQL in your Supabase SQL Editor to resolve schema inconsistencies:</p>
-                      <div className="relative">
-                        <pre className="bg-gray-900 p-3 rounded-lg overflow-x-auto text-[10px] font-mono text-green-400 border border-gray-700">
-                            {REQUIRED_SQL}
-                        </pre>
-                        <button onClick={copySQL} className="absolute top-2 right-2 bg-gray-700 text-white text-[10px] px-2 py-1 rounded">Copy</button>
-                      </div>
-                  </div>
-              </div>
-          </div>
-      )}
+        {/* Version */}
+        <div className="text-center text-[10px] text-gray-600 pt-2">
+            v{(process.env.COMMIT_SHA || 'dev').substring(0, 7)}
+        </div>
+      </div>
     </div>
   );
 };

@@ -266,7 +266,13 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
                         <div className="absolute inset-0 flex items-center justify-center"><span className="text-xl font-bold text-purple-400">{stepProgress[processingStep]}%</span></div>
                     </div>
                     <h3 className="text-xl font-bold text-white mb-2">{stepMessages[processingStep]}</h3>
-                    <p className="text-gray-400 text-sm text-center mb-6">Working with Gemini AI to craft your study.</p>
+                    <p className="text-gray-400 text-sm text-center mb-4">Working with Gemini AI to craft your study.</p>
+                    <button
+                        onClick={() => { setIsProcessing(false); setProcessingStep('IDLE'); }}
+                        className="text-gray-500 hover:text-gray-300 text-sm underline"
+                    >
+                        Cancel
+                    </button>
                 </div>
            </div>
        )}
