@@ -89,6 +89,23 @@ const App: React.FC = () => {
             if (session && !isInitializing) {
                 // Use cached user to avoid blocking UI on token refresh
                 const cachedUser = getUser();
+
+                // For TOKEN_REFRESHED, don't show loading or interrupt user if they're already logged in
+                if (event === 'TOKEN_REFRESHED' && cachedUser) {
+                    // Silently refresh in background, don't interrupt the user
+                    try {
+                        const sessionUser = await initializeSession();
+                        if (sessionUser) {
+                            setUser(sessionUser);
+                        }
+                    } catch (e) {
+                        // Silently fail on background refresh - don't log user out
+                        console.warn("Background token refresh failed:", e);
+                    }
+                    return;
+                }
+
+                // Only show loading for SIGNED_IN (e.g., OAuth redirect)
                 if (!cachedUser) {
                     setAuthLoading(true);
                 }
@@ -100,8 +117,11 @@ const App: React.FC = () => {
                         handleLogin(sessionUser);
                     }
                 } catch (e) {
-                    console.error("Error refreshing session:", e);
-                    setUser(null);
+                    console.error("Error during sign in:", e);
+                    // Only clear user if they weren't already logged in
+                    if (!cachedUser) {
+                        setUser(null);
+                    }
                 } finally {
                     isInitializing = false;
                     setAuthLoading(false);
