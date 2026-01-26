@@ -40,6 +40,16 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
   const currentUser = getCurrentUser();
   const isOwner = currentUser?.id === study.userId;
 
+  // Helper to check if a day is completed for the CURRENT user
+  // Owner uses study.days[].isCompleted, participants use myProgress
+  const isDayCompletedForMe = (dayNumber: number): boolean => {
+    if (isOwner) {
+      const day = study.days.find(d => d.day === dayNumber);
+      return day?.isCompleted || false;
+    }
+    return myProgress.includes(dayNumber);
+  };
+
   useEffect(() => {
     setStudy(initialStudy);
   }, [initialStudy]);
@@ -79,32 +89,31 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
 
   const handleToggleDayComplete = async () => {
     const currentDayNumber = study.days[activeDay].day;
-    const wasCompleted = study.days[activeDay].isCompleted;
+    const wasCompleted = isDayCompletedForMe(currentDayNumber);
 
-    const updatedDays = study.days.map((d, idx) => {
-        if (idx === activeDay) {
-            return { ...d, isCompleted: !d.isCompleted };
-        }
-        return d;
-    });
-
-    const allComplete = updatedDays.every(d => d.isCompleted);
-
-    const updatedStudy = {
-        ...study,
-        days: updatedDays,
-        isCompleted: allComplete
-    };
-
-    setStudy(updatedStudy);
-
-    // If user is owner, save to their study record
+    // If user is owner, update the study record
     if (isOwner) {
+      const updatedDays = study.days.map((d, idx) => {
+          if (idx === activeDay) {
+              return { ...d, isCompleted: !wasCompleted };
+          }
+          return d;
+      });
+
+      const allComplete = updatedDays.every(d => d.isCompleted);
+
+      const updatedStudy = {
+          ...study,
+          days: updatedDays,
+          isCompleted: allComplete
+      };
+
+      setStudy(updatedStudy);
       await saveStudy(updatedStudy);
     }
 
-    // If user is a participant (or owner with participants), sync to participant progress
-    if (isParticipant || participants.length > 0) {
+    // Sync to participant progress table (for both owner and participants when there are participants)
+    if (isParticipant || isOwner) {
       if (wasCompleted) {
         await unmarkStudyDayComplete(study.id, currentDayNumber);
         setMyProgress(prev => prev.filter(d => d !== currentDayNumber));
@@ -113,8 +122,10 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
         setMyProgress(prev => [...prev, currentDayNumber]);
       }
       // Refresh participants to show updated progress
-      const updated = await getStudyParticipants(study.id);
-      setParticipants(updated);
+      if (participants.length > 0) {
+        const updated = await getStudyParticipants(study.id);
+        setParticipants(updated);
+      }
     }
   };
 
@@ -316,7 +327,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
                 : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'
             }`}
           >
-            {day.isCompleted && (
+            {isDayCompletedForMe(day.day) && (
                 <div className={`absolute -top-1.5 -right-1.5 rounded-full p-0.5 ${activeDay === index ? 'bg-white text-purple-600' : 'bg-green-500 text-gray-900'}`}>
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -406,12 +417,12 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
             <button
                 onClick={handleToggleDayComplete}
                 className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg flex items-center justify-center space-x-2 ${
-                    currentDay.isCompleted
+                    isDayCompletedForMe(currentDay.day)
                     ? 'bg-green-900/20 text-green-400 border border-green-800 hover:bg-green-900/30'
                     : 'bg-white text-gray-900 hover:bg-gray-100'
                 }`}
             >
-                {currentDay.isCompleted ? (
+                {isDayCompletedForMe(currentDay.day) ? (
                     <>
                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
