@@ -193,11 +193,14 @@ export const saveStudy = async (study: SermonStudy): Promise<void> => {
 
   saveLocalStudy(user.id, study);
 
-  if (!supabase) return;
+  if (!supabase) {
+    console.warn("Supabase not configured - study saved locally only");
+    return;
+  }
 
   try {
       await ensureValidSession();
-      
+
       const payload: any = {
           id: study.id,
           user_id: user.id,
@@ -211,9 +214,14 @@ export const saveStudy = async (study: SermonStudy): Promise<void> => {
       };
 
       const { error } = await supabase.from('studies').upsert(payload);
-      if (error) console.warn("Study cloud sync error:", error.message);
-  } catch (err) {
-      console.warn("Cloud study sync deferred:", err);
+      if (error) {
+        console.error("Study cloud sync FAILED:", error.message, error.details, error.hint);
+        // Don't throw - allow local save to succeed
+      } else {
+        console.log("Study synced to cloud successfully:", study.id);
+      }
+  } catch (err: any) {
+      console.error("Cloud study sync error:", err.message);
   }
 };
 
@@ -323,27 +331,33 @@ export const getBulletins = async (): Promise<Bulletin[]> => {
 export const saveBulletin = async (bulletin: Bulletin): Promise<void> => {
     const user = getCurrentUser();
     if (!user) return;
-    
+
     saveLocalBulletin(user.id, bulletin);
 
-    if (!supabase) return;
+    if (!supabase) {
+        console.warn("Supabase not configured - bulletin saved locally only");
+        return;
+    }
 
-    (async () => {
-        try {
-            await ensureValidSession();
-            const payload = { 
-                id: bulletin.id, 
-                user_id: user.id, 
-                title: bulletin.title, 
-                date_scanned: bulletin.dateScanned,
-                raw_summary: bulletin.rawSummary,
-                events: bulletin.events
-            };
-            await supabase.from('bulletins').upsert(payload);
-        } catch (err) {
-            console.warn("Cloud bulletin sync error:", err);
+    try {
+        await ensureValidSession();
+        const payload = {
+            id: bulletin.id,
+            user_id: user.id,
+            title: bulletin.title,
+            date_scanned: bulletin.dateScanned,
+            raw_summary: bulletin.rawSummary,
+            events: bulletin.events
+        };
+        const { error } = await supabase.from('bulletins').upsert(payload);
+        if (error) {
+            console.error("Bulletin cloud sync FAILED:", error.message, error.details, error.hint);
+        } else {
+            console.log("Bulletin synced to cloud successfully:", bulletin.id);
         }
-    })();
+    } catch (err: any) {
+        console.error("Cloud bulletin sync error:", err.message);
+    }
 };
 
 export const deleteBulletin = async (id: string): Promise<void> => {
