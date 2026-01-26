@@ -30,14 +30,19 @@ RUN npm run build
 # Production stage
 FROM nginx:alpine
 
-# Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy nginx config template (uses envsubst for runtime variable injection)
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
 # Copy built assets from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
 
+# Copy startup script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 # Expose port 8080 (Cloud Run default)
 EXPOSE 8080
 
-# Start nginx
+# Use custom entrypoint to inject env vars into nginx config
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]
