@@ -72,7 +72,7 @@ export const searchChurch = async (query: string): Promise<{name: string, addres
 };
 
 /**
- * Uses gemini-3-flash-preview for general text and image analysis tasks.
+ * Uses gemini-2.5-flash for general text and image analysis tasks.
  */
 export const processBulletin = async (images: Blob[]): Promise<Bulletin> => {
   if (!process.env.API_KEY) throw new Error("API Key missing");
@@ -113,14 +113,14 @@ export const processBulletin = async (images: Blob[]): Promise<Bulletin> => {
     });
   }
 
-  const instruction = `Analyze these images of a church bulletin. 
-  Extract a list of upcoming events. 
+  const instruction = `Analyze these images of a church bulletin.
+  Extract a list of upcoming events.
   Infer the correct YYYY-MM-DD for dates based on current date: ${new Date().toISOString().split('T')[0]}.`;
 
   parts.push({ text: instruction });
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-2.5-flash',
     contents: { parts },
     config: {
         responseMimeType: "application/json",
@@ -148,7 +148,7 @@ export const processBulletin = async (images: Blob[]): Promise<Bulletin> => {
 };
 
 /**
- * Uses gemini-3-pro-preview for complex reasoning and content generation.
+ * Uses gemini-2.5-pro for complex reasoning and content generation.
  */
 export const generateBibleStudy = async (
   input: { audioBlob?: Blob; text?: string; images?: Blob[] },
@@ -213,7 +213,7 @@ export const generateBibleStudy = async (
   parts.push({ text: instruction });
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-2.5-pro',
     contents: { parts },
     config: {
         responseMimeType: "application/json",
