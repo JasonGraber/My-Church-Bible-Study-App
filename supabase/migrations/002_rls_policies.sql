@@ -1,6 +1,50 @@
 -- My Church Bible Study App - Row Level Security Policies
 -- Run this AFTER 001_tables.sql
 
+-- First, ensure all required columns exist (in case tables were partially created before)
+DO $$
+BEGIN
+    -- user_settings
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'user_settings' AND column_name = 'user_id') THEN
+        ALTER TABLE public.user_settings ADD COLUMN user_id uuid references auth.users on delete cascade;
+    END IF;
+
+    -- studies
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'studies' AND column_name = 'user_id') THEN
+        ALTER TABLE public.studies ADD COLUMN user_id uuid references auth.users;
+    END IF;
+
+    -- bulletins
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulletins' AND column_name = 'user_id') THEN
+        ALTER TABLE public.bulletins ADD COLUMN user_id uuid references auth.users;
+    END IF;
+
+    -- posts
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'posts' AND column_name = 'user_id') THEN
+        ALTER TABLE public.posts ADD COLUMN user_id uuid references auth.users;
+    END IF;
+
+    -- comments
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'comments' AND column_name = 'user_id') THEN
+        ALTER TABLE public.comments ADD COLUMN user_id uuid references auth.users;
+    END IF;
+
+    -- study_participants
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'study_participants' AND column_name = 'user_id') THEN
+        ALTER TABLE public.study_participants ADD COLUMN user_id uuid references auth.users on delete cascade;
+    END IF;
+
+    -- study_day_progress
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'study_day_progress' AND column_name = 'user_id') THEN
+        ALTER TABLE public.study_day_progress ADD COLUMN user_id uuid references auth.users on delete cascade;
+    END IF;
+
+    -- study_day_comments
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'study_day_comments' AND column_name = 'user_id') THEN
+        ALTER TABLE public.study_day_comments ADD COLUMN user_id uuid references auth.users on delete cascade;
+    END IF;
+END $$;
+
 -- Enable RLS on all tables
 alter table public.profiles enable row level security;
 alter table public.user_settings enable row level security;
