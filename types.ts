@@ -17,6 +17,11 @@ export interface GeoLocation {
   address?: string;
 }
 
+export enum AIModel {
+  GEMINI_FLASH = 'gemini-2.5-flash',
+  GEMINI_PRO = 'gemini-2.5-pro',
+}
+
 export interface UserSettings {
   studyDuration: StudyDuration;
   studyLength: StudyLength;
@@ -27,6 +32,9 @@ export interface UserSettings {
   serviceTimes?: string[]; // e.g. ["09:00", "11:00"]
   geofenceEnabled: boolean;
   sundayReminderEnabled?: boolean;
+  // AI Settings
+  aiModel?: AIModel;
+  customPrompt?: string; // Additional instructions for study generation
 }
 
 export interface User {
@@ -154,6 +162,11 @@ export enum AppView {
   TERMS_OF_SERVICE = 'TERMS_OF_SERVICE'
 }
 
+export const DEFAULT_STUDY_PROMPT = `You are an expert Bible Study creator with deep theological knowledge.
+Create an engaging, spiritually enriching study based on the provided sermon content.
+Focus on practical application and personal reflection.
+Use clear, accessible language suitable for all levels of biblical literacy.`;
+
 export const DEFAULT_SETTINGS: UserSettings = {
   studyDuration: StudyDuration.FIVE_DAY,
   studyLength: StudyLength.MEDIUM,
@@ -163,5 +176,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   churchName: "",
   serviceTimes: [],
   geofenceEnabled: false,
-  sundayReminderEnabled: true
+  sundayReminderEnabled: true,
+  aiModel: AIModel.GEMINI_PRO,
+  customPrompt: ""
 };

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { UserSettings, StudyDuration, StudyLength, GeoLocation, DEFAULT_SETTINGS, User, AppView } from '../types';
+import { UserSettings, StudyDuration, StudyLength, GeoLocation, DEFAULT_SETTINGS, User, AppView, AIModel, DEFAULT_STUDY_PROMPT } from '../types';
 import { saveSettings, getSettings, getUser, logoutUser, updateUser, syncLocalDataToCloud } from '../services/storageService';
 import { getCurrentLocation } from '../services/geoService';
 import { searchChurch } from '../services/geminiService';
@@ -231,6 +231,52 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
                     <span className="text-white font-bold">{localSettings.supportingReferencesCount}</span>
                     <button onClick={incrementRef} className="w-8 h-8 rounded-full bg-gray-700 text-white font-bold">+</button>
                 </div>
+            </div>
+        </div>
+
+        {/* AI Settings */}
+        <div className="space-y-3">
+            <label className="block text-sm font-medium text-gray-400 uppercase tracking-wide">AI Model</label>
+            <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                    <button
+                        onClick={() => setLocalSettings({ ...localSettings, aiModel: AIModel.GEMINI_FLASH })}
+                        className={`py-3 px-2 rounded-lg text-xs font-bold border transition-all ${localSettings.aiModel === AIModel.GEMINI_FLASH ? 'border-purple-500 bg-purple-900/20 text-white' : 'border-gray-700 bg-gray-900 text-gray-500'}`}
+                    >
+                        <span className="block text-sm">Flash</span>
+                        <span className="text-[10px] opacity-70">Faster</span>
+                    </button>
+                    <button
+                        onClick={() => setLocalSettings({ ...localSettings, aiModel: AIModel.GEMINI_PRO })}
+                        className={`py-3 px-2 rounded-lg text-xs font-bold border transition-all ${(localSettings.aiModel === AIModel.GEMINI_PRO || !localSettings.aiModel) ? 'border-purple-500 bg-purple-900/20 text-white' : 'border-gray-700 bg-gray-900 text-gray-500'}`}
+                    >
+                        <span className="block text-sm">Pro</span>
+                        <span className="text-[10px] opacity-70">Higher Quality</span>
+                    </button>
+                </div>
+                <p className="text-[10px] text-gray-500">Flash is faster but Pro produces more thoughtful studies.</p>
+            </div>
+        </div>
+
+        {/* Custom Prompt */}
+        <div className="space-y-3">
+            <label className="block text-sm font-medium text-gray-400 uppercase tracking-wide">Custom Instructions</label>
+            <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 space-y-3">
+                <textarea
+                    value={localSettings.customPrompt || ""}
+                    onChange={(e) => setLocalSettings({ ...localSettings, customPrompt: e.target.value })}
+                    placeholder={DEFAULT_STUDY_PROMPT}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500 h-28 resize-none"
+                />
+                <p className="text-[10px] text-gray-500">Customize how AI generates your studies. Leave blank to use defaults.</p>
+                {localSettings.customPrompt && (
+                    <button
+                        onClick={() => setLocalSettings({ ...localSettings, customPrompt: "" })}
+                        className="text-xs text-purple-400 hover:underline"
+                    >
+                        Reset to Default
+                    </button>
+                )}
             </div>
         </div>
 

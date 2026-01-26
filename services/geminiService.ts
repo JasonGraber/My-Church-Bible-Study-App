@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { SermonStudy, UserSettings, StudyLength, Bulletin } from '../types';
+import { SermonStudy, UserSettings, StudyLength, Bulletin, AIModel, DEFAULT_STUDY_PROMPT } from '../types';
 import { getCurrentUser } from './authService';
 
 // Helper to convert Blob to Base64
@@ -190,9 +190,14 @@ export const generateBibleStudy = async (
   };
 
   let parts = [];
-  const instruction = `You are an expert Bible Study creator.
-    Create a ${settings.studyDuration}-day study based on provided sermon content.
-    Daily devotionals should be ~${wordCount} words. Include ${refCount} supporting scriptures per day.`;
+
+  // Build instruction from default + custom prompt
+  const basePrompt = settings.customPrompt?.trim() || DEFAULT_STUDY_PROMPT;
+  const instruction = `${basePrompt}
+
+Create a ${settings.studyDuration}-day study based on the provided sermon content.
+Daily devotionals should be approximately ${wordCount} words.
+Include ${refCount} supporting scriptures per day.`;
 
   if (input.audioBlob) {
     const base64Audio = await blobToBase64(input.audioBlob);
@@ -212,8 +217,11 @@ export const generateBibleStudy = async (
   
   parts.push({ text: instruction });
 
+  // Use configured model or default to Pro
+  const modelId = settings.aiModel || AIModel.GEMINI_PRO;
+
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-pro',
+    model: modelId,
     contents: { parts },
     config: {
         responseMimeType: "application/json",
