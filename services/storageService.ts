@@ -649,6 +649,7 @@ export const addStudyDayComment = async (
     dayNumber: number,
     comment: string,
     studyTitle: string,
+    studyOwnerId: string,
     postToFeed: boolean = true
 ): Promise<StudyDayComment | null> => {
     const user = getCurrentUser();
@@ -671,7 +672,7 @@ export const addStudyDayComment = async (
                 comments: [],
                 type: 'STUDY_SHARE',
                 studyId: studyId,
-                studyData: { title: studyTitle }
+                studyData: { title: studyTitle, ownerId: studyOwnerId }
             };
             await savePost(feedPost);
             postId = feedPost.id;

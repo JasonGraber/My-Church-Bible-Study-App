@@ -128,6 +128,11 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
         return currentUser?.id === userId;
     };
 
+    const isStudyOwner = (post: Post) => {
+        // Check if current user owns the study (via studyData.ownerId or if they made the original share)
+        return currentUser?.id === post.studyData?.ownerId || currentUser?.id === post.userId;
+    };
+
     // Filter feed to only show posts from friends and own posts
     const filteredPosts = posts.filter(post =>
         isOwnPost(post.userId) || isFriend(post.userId)
@@ -242,8 +247,8 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
                                                     </div>
                                                 </div>
                                                 
-                                                {/* Only show Join button if it's not the user's own post */}
-                                                {!isOwnPost(post.userId) && (
+                                                {/* Only show Join button if user doesn't own the study */}
+                                                {!isStudyOwner(post) && (
                                                     <div className="mt-4 flex items-center justify-between relative z-10 border-t border-gray-700/50 pt-3">
                                                         <span className="text-xs text-gray-400">Join to add to your studies</span>
                                                         <button

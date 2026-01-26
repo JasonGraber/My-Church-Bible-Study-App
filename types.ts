@@ -133,6 +133,7 @@ export interface Post {
   studyData?: {
       title: string;
       preacher?: string;
+      ownerId?: string; // Study owner's user ID
   };
   content: string; // "Just finished this study on Grace..."
   timestamp: string;

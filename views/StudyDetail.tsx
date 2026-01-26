@@ -125,6 +125,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
         currentDayNumber,
         newComment.trim(),
         study.sermonTitle,
+        study.userId, // Study owner ID
         true // Post to community feed
       );
       if (result) {
