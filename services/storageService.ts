@@ -247,38 +247,42 @@ export const joinStudy = async (originalStudyId: string): Promise<void> => {
     const user = getCurrentUser();
     if (!user) throw new Error("Must be logged in");
 
-    // Check if already a participant
+    // Try to add as participant (Study Together feature)
     if (supabase) {
-        const { data: existing } = await supabase
-            .from('study_participants')
-            .select('id')
-            .eq('study_id', originalStudyId)
-            .eq('user_id', user.id)
-            .maybeSingle();
+        try {
+            // Check if already a participant
+            const { data: existing } = await supabase
+                .from('study_participants')
+                .select('id')
+                .eq('study_id', originalStudyId)
+                .eq('user_id', user.id)
+                .maybeSingle();
 
-        if (existing) {
-            throw new Error("You've already joined this study!");
-        }
+            if (existing) {
+                throw new Error("You've already joined this study!");
+            }
 
-        // Add as participant
-        const { error } = await supabase
-            .from('study_participants')
-            .insert({
-                study_id: originalStudyId,
-                user_id: user.id,
-                user_name: user.name,
-                user_avatar: user.avatar
-            });
+            // Add as participant
+            const { error } = await supabase
+                .from('study_participants')
+                .insert({
+                    study_id: originalStudyId,
+                    user_id: user.id,
+                    user_name: user.name,
+                    user_avatar: user.avatar
+                });
 
-        if (error) {
+            if (!error) {
+                return; // Successfully joined as participant
+            }
             console.warn("Failed to add participant, falling back to copy:", error);
-            // Fall back to copying the study if participant table doesn't exist yet
-        } else {
-            return; // Successfully joined as participant
+        } catch (e: any) {
+            // Table might not exist yet, fall back to copy
+            console.warn("Participant table error, falling back to copy:", e.message);
         }
     }
 
-    // Fallback: Copy the study (old behavior for backwards compatibility)
+    // Fallback: Copy the study (works even without Study Together tables)
     const newStudy: SermonStudy = {
         ...original,
         id: crypto.randomUUID(),
