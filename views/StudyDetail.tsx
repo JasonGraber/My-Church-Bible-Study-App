@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { SermonStudy, AppView, DailyStudy, StudyParticipant, StudyDayComment } from '../types';
-import { saveStudy, getStudyParticipants, markStudyDayComplete, unmarkStudyDayComplete, isUserStudyParticipant, getUserProgressForStudy, getStudyDayComments, addStudyDayComment } from '../services/storageService';
+import { SermonStudy, AppView, DailyStudy, StudyParticipant, StudyDayComment, User } from '../types';
+import { saveStudy, getStudyParticipants, markStudyDayComplete, unmarkStudyDayComplete, isUserStudyParticipant, getUserProgressForStudy, getStudyDayComments, addStudyDayComment, getUserById } from '../services/storageService';
 import { getCurrentUser } from '../services/authService';
 
 interface StudyDetailProps {
@@ -29,6 +29,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
   const [study, setStudy] = useState<SermonStudy>(initialStudy);
   const [activeDay, setActiveDay] = useState<number>(0);
   const [participants, setParticipants] = useState<StudyParticipant[]>([]);
+  const [studyOwner, setStudyOwner] = useState<User | null>(null);
   const [isParticipant, setIsParticipant] = useState(false);
   const [myProgress, setMyProgress] = useState<number[]>([]);
   const [showParticipants, setShowParticipants] = useState(false);
@@ -43,20 +44,22 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
     setStudy(initialStudy);
   }, [initialStudy]);
 
-  // Load participants and check if current user is a participant
+  // Load participants, owner info, and check if current user is a participant
   useEffect(() => {
     const loadParticipantData = async () => {
-      const [participantList, isUserParticipant, userProgress] = await Promise.all([
+      const [participantList, isUserParticipant, userProgress, ownerInfo] = await Promise.all([
         getStudyParticipants(study.id),
         isUserStudyParticipant(study.id),
-        getUserProgressForStudy(study.id)
+        getUserProgressForStudy(study.id),
+        getUserById(study.userId)
       ]);
       setParticipants(participantList);
       setIsParticipant(isUserParticipant);
       setMyProgress(userProgress);
+      setStudyOwner(ownerInfo);
     };
     loadParticipantData();
-  }, [study.id]);
+  }, [study.id, study.userId]);
 
   // Load comments for current day
   useEffect(() => {
@@ -225,23 +228,30 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
       </div>
 
       {/* Participants Panel */}
-      {showParticipants && participants.length > 0 && (
+      {showParticipants && (participants.length > 0 || studyOwner) && (
         <div className="bg-gray-800/80 border-b border-gray-700 p-4">
           <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Study Participants</h4>
           <div className="space-y-3">
-            {/* Owner */}
-            {isOwner && currentUser && (
+            {/* Owner - always show */}
+            {studyOwner && (
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-sm font-bold text-white overflow-hidden mr-3 ring-2 ring-purple-500">
-                    {currentUser.avatar?.startsWith('http') ? (
-                      <img src={currentUser.avatar} alt="" className="w-full h-full object-cover" />
+                    {studyOwner.avatar?.startsWith('http') ? (
+                      <img src={studyOwner.avatar} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      currentUser.name?.[0]?.toUpperCase() || '?'
+                      studyOwner.name?.[0]?.toUpperCase() || '?'
                     )}
                   </div>
                   <div>
-                    <p className="text-white font-medium text-sm">{currentUser.name} <span className="text-purple-400 text-xs">(You - Owner)</span></p>
+                    <p className="text-white font-medium text-sm">
+                      {studyOwner.name}
+                      {isOwner ? (
+                        <span className="text-purple-400 text-xs ml-1">(You - Owner)</span>
+                      ) : (
+                        <span className="text-purple-400 text-xs ml-1">(Owner)</span>
+                      )}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center text-xs text-gray-400">
