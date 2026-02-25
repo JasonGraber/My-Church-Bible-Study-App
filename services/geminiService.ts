@@ -151,7 +151,7 @@ export const processBulletin = async (images: Blob[]): Promise<Bulletin> => {
  * Uses gemini-3-pro-preview for complex reasoning and content generation.
  */
 export const generateBibleStudy = async (
-  input: { audioBlob?: Blob; text?: string; images?: Blob[] },
+  input: { audioBlob?: Blob; text?: string; images?: Blob[]; youtubeUrl?: string },
   settings: UserSettings
 ): Promise<SermonStudy> => {
   if (!process.env.API_KEY) throw new Error("API Key missing");
@@ -208,7 +208,11 @@ export const generateBibleStudy = async (
 
   if (input.text) {
     parts.push({ text: input.text });
-  } 
+  }
+
+  if (input.youtubeUrl) {
+    parts.push({ fileData: { mimeType: 'video/*', fileUri: input.youtubeUrl } });
+  }
   
   parts.push({ text: instruction });
 

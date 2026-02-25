@@ -9,7 +9,7 @@ interface RecordViewProps {
   settings: UserSettings;
   onStudyGenerated: (study: SermonStudy) => void;
   setView: (view: AppView) => void;
-  initialAction?: 'UPLOAD_AUDIO' | 'SCAN_NOTES' | 'PASTE_TEXT' | 'SCAN_BULLETIN' | null;
+  initialAction?: 'UPLOAD_AUDIO' | 'SCAN_NOTES' | 'PASTE_TEXT' | 'SCAN_BULLETIN' | 'YOUTUBE_URL' | null;
 }
 
 type ProcessingStep = 'IDLE' | 'OPTIMIZING' | 'ANALYZING' | 'RESEARCHING' | 'FINALIZING';
@@ -22,10 +22,12 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
   const [isInChurch, setIsInChurch] = useState(false);
   
   const [showTranscriptModal, setShowTranscriptModal] = useState(false);
+  const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [showImageOptions, setShowImageOptions] = useState(false);
   const [imageMode, setImageMode] = useState<'STUDY' | 'BULLETIN'>('STUDY');
   
   const [transcriptInput, setTranscriptInput] = useState("");
+  const [youtubeUrlInput, setYoutubeUrlInput] = useState("");
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [showImagePreview, setShowImagePreview] = useState(false);
 
@@ -41,6 +43,7 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
         else if (initialAction === 'SCAN_NOTES') initiateImageCapture('STUDY');
         else if (initialAction === 'PASTE_TEXT') setShowTranscriptModal(true);
         else if (initialAction === 'SCAN_BULLETIN') initiateImageCapture('BULLETIN');
+        else if (initialAction === 'YOUTUBE_URL') setShowYoutubeModal(true);
     }, 100);
     return () => clearTimeout(timer);
   }, [initialAction]);
@@ -195,6 +198,25 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
     }
   };
 
+  const handleYoutubeSubmit = async () => {
+    const url = youtubeUrlInput.trim();
+    if (!url) return;
+    setShowYoutubeModal(false);
+    startProcessing('RESEARCHING');
+    try {
+        const newStudy = await generateBibleStudy({ youtubeUrl: url }, settings);
+        setProcessingStep('FINALIZING');
+        await saveStudy(newStudy);
+        onStudyGenerated(newStudy);
+        setView(AppView.STUDY_DETAIL);
+    } catch (err: any) {
+        handleError("YouTube Processing Failed", err.message);
+    } finally {
+        setIsProcessing(false);
+        setYoutubeUrlInput("");
+    }
+  };
+
   const stepMessages: Record<ProcessingStep, string> = {
       IDLE: "",
       OPTIMIZING: "Optimizing Images...",
@@ -254,6 +276,10 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
           <button onClick={() => setShowTranscriptModal(true)} disabled={isProcessing} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 p-5 rounded-2xl flex items-center transition-all group shadow-lg">
              <div className="h-14 w-14 rounded-full bg-purple-900/20 text-purple-400 flex items-center justify-center mr-5 group-hover:scale-110 transition-transform"><svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></div>
              <div><h3 className="font-bold text-white text-lg">Paste Text</h3><p className="text-sm text-gray-400">Paste notes or a transcript</p></div>
+          </button>
+          <button onClick={() => setShowYoutubeModal(true)} disabled={isProcessing} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 p-5 rounded-2xl flex items-center transition-all group shadow-lg">
+             <div className="h-14 w-14 rounded-full bg-rose-900/20 text-rose-400 flex items-center justify-center mr-5 group-hover:scale-110 transition-transform"><svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div>
+             <div><h3 className="font-bold text-white text-lg">YouTube Video</h3><p className="text-sm text-gray-400">Paste a sermon video link</p></div>
           </button>
       </div>
 
@@ -323,6 +349,30 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
                   <div className="p-6 border-b border-gray-700"><h3 className="text-xl font-bold text-white">Paste Transcript</h3><p className="text-gray-400 text-sm mt-1">Paste your sermon notes or a message transcript.</p></div>
                   <div className="p-6"><textarea value={transcriptInput} onChange={(e) => setTranscriptInput(e.target.value)} placeholder="Start typing or paste here..." className="w-full bg-gray-900 border border-gray-700 rounded-2xl p-4 text-white text-sm focus:border-purple-500 focus:outline-none min-h-[250px] resize-none" /></div>
                   <div className="p-6 pt-0 flex space-x-3"><button onClick={() => setShowTranscriptModal(false)} className="flex-1 py-3 bg-gray-700 rounded-xl text-white font-medium">Cancel</button><button onClick={handleTranscriptSubmit} disabled={!transcriptInput.trim()} className="flex-1 py-3 bg-purple-600 rounded-xl text-white font-bold hover:bg-purple-700 disabled:opacity-50">Create Study</button></div>
+              </div>
+          </div>
+      )}
+
+      {showYoutubeModal && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-6">
+              <div className="bg-gray-800 w-full max-w-lg rounded-3xl border border-gray-700 shadow-2xl overflow-hidden animate-slide-up">
+                  <div className="p-6 border-b border-gray-700">
+                      <h3 className="text-xl font-bold text-white">YouTube Video</h3>
+                      <p className="text-gray-400 text-sm mt-1">Paste the URL of a sermon on YouTube.</p>
+                  </div>
+                  <div className="p-6">
+                      <input
+                          type="url"
+                          value={youtubeUrlInput}
+                          onChange={(e) => setYoutubeUrlInput(e.target.value)}
+                          placeholder="https://www.youtube.com/watch?v=..."
+                          className="w-full bg-gray-900 border border-gray-700 rounded-2xl p-4 text-white text-sm focus:border-rose-500 focus:outline-none"
+                      />
+                  </div>
+                  <div className="p-6 pt-0 flex space-x-3">
+                      <button onClick={() => { setShowYoutubeModal(false); setYoutubeUrlInput(""); }} className="flex-1 py-3 bg-gray-700 rounded-xl text-white font-medium">Cancel</button>
+                      <button onClick={handleYoutubeSubmit} disabled={!youtubeUrlInput.trim()} className="flex-1 py-3 bg-rose-600 rounded-xl text-white font-bold hover:bg-rose-700 disabled:opacity-50">Create Study</button>
+                  </div>
               </div>
           </div>
       )}
