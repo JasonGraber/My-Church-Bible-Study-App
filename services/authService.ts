@@ -156,10 +156,39 @@ export const getCommunityUsers = async (): Promise<User[]> => {
 
 export const toggleFriend = async (targetUserId: string): Promise<User | null> => {
     if (!currentUserCache || !supabase) return null;
+    const currentUserId = currentUserCache.id;
     let newFriends = [...(currentUserCache.friends || [])];
-    if (newFriends.includes(targetUserId)) newFriends = newFriends.filter(id => id !== targetUserId);
-    else newFriends.push(targetUserId);
+    const isRemoving = newFriends.includes(targetUserId);
+
+    if (isRemoving) {
+        newFriends = newFriends.filter(id => id !== targetUserId);
+    } else {
+        newFriends.push(targetUserId);
+    }
+
+    // Update current user's friend list
     const updatedUser = { ...currentUserCache, friends: newFriends };
     await updateUser(updatedUser);
+
+    // Update target user's friend list to keep friendship bidirectional
+    const { data: targetProfile } = await supabase
+        .from('profiles')
+        .select('friends')
+        .eq('id', targetUserId)
+        .single();
+
+    if (targetProfile) {
+        let targetFriends: string[] = targetProfile.friends || [];
+        if (isRemoving) {
+            targetFriends = targetFriends.filter((id: string) => id !== currentUserId);
+        } else if (!targetFriends.includes(currentUserId)) {
+            targetFriends = [...targetFriends, currentUserId];
+        }
+        await supabase
+            .from('profiles')
+            .update({ friends: targetFriends })
+            .eq('id', targetUserId);
+    }
+
     return updatedUser;
 };
