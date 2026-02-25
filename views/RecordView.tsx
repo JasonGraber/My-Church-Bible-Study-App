@@ -203,6 +203,12 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
     if (!url) return;
     setShowYoutubeModal(false);
     startProcessing('RESEARCHING');
+    // YouTube videos (full sermons) can take longer than the default 2min timeout — extend to 5min
+    if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+    timeoutRef.current = window.setTimeout(() => {
+        handleError("Processing Timeout", "The video took too long to process. Try a shorter video or paste the transcript instead.");
+        setIsProcessing(false);
+    }, 300000);
     try {
         const newStudy = await generateBibleStudy({ youtubeUrl: url }, settings);
         setProcessingStep('FINALIZING');

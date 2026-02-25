@@ -211,7 +211,7 @@ export const generateBibleStudy = async (
   }
 
   if (input.youtubeUrl) {
-    parts.push({ fileData: { mimeType: 'video/*', fileUri: input.youtubeUrl } });
+    parts.push({ fileData: { mimeType: 'video/youtube', fileUri: input.youtubeUrl } });
   }
   
   parts.push({ text: instruction });
