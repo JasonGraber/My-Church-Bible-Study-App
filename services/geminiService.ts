@@ -211,7 +211,15 @@ export const generateBibleStudy = async (
   }
 
   if (input.youtubeUrl) {
-    parts.push({ fileData: { mimeType: 'video/youtube', fileUri: input.youtubeUrl } });
+    // Fetch transcript server-side (fast) rather than having Gemini process the full video (slow)
+    const transcriptRes = await fetch(`/api/transcript?url=${encodeURIComponent(input.youtubeUrl)}`);
+    if (!transcriptRes.ok) {
+      // Fall back to direct video processing if transcript unavailable
+      parts.push({ fileData: { mimeType: 'video/youtube', fileUri: input.youtubeUrl } });
+    } else {
+      const { transcript } = await transcriptRes.json();
+      parts.push({ text: `[YouTube Video Transcript]\n${transcript}` });
+    }
   }
   
   parts.push({ text: instruction });

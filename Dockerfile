@@ -28,16 +28,22 @@ ENV COMMIT_SHA=$COMMIT_SHA
 RUN npm run build
 
 # Production stage
-FROM nginx:alpine
+FROM node:20-alpine
 
-# Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+WORKDIR /app
 
-# Copy built assets from builder stage
-COPY --from=builder /app/dist /usr/share/nginx/html
+# Copy package files and install production dependencies only
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# Copy built frontend assets from builder stage
+COPY --from=builder /app/dist ./dist
+
+# Copy Express server
+COPY server.js ./
 
 # Expose port 8080 (Cloud Run default)
 EXPOSE 8080
 
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Start the Express server
+CMD ["node", "server.js"]
