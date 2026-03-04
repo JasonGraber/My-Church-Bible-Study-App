@@ -90,8 +90,16 @@ app.post('/api/church/search', async (req, res) => {
   }
 });
 
-// SPA fallback — all unmatched routes serve index.html
+// SPA fallback — serve index.html for navigation requests only
 app.get('*', (req, res) => {
+  // If the request looks like a static file (has extension), return 404
+  // instead of serving index.html with wrong MIME type
+  if (req.path.match(/\.\w+$/)) {
+    return res.status(404).send('Not found');
+  }
+  // Prevent browsers from caching index.html so they always get fresh
+  // asset references after deployments (hashed filenames change per build)
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.sendFile(join(__dirname, 'dist', 'index.html'));
 });
 
