@@ -30,45 +30,21 @@ const cleanAndParseJSON = (text: string) => {
 };
 
 /**
- * Uses gemini-2.5-flash for Maps Grounding tasks as per guidelines.
+ * Searches for churches via server-side endpoint that uses Gemini with Google Maps grounding.
+ * This runs server-side to avoid 405 errors from browser-based Maps grounding requests.
  */
 export const searchChurch = async (query: string): Promise<{name: string, address: string, lat: number, lng: number, uri?: string, serviceTimes?: string[]}[]> => {
-  if (!process.env.API_KEY) throw new Error("API Key missing");
-
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const prompt = `Find the church matching "${query}". 
-  Provide the name, address, latitude, and longitude for the top matches (max 3).
-  Crucial: Try to find Sunday service times from the available information and include them as an array of strings (e.g. ["9:00 AM", "11:00 AM"]). If unknown, return empty array.
-  Return the response as a raw JSON array of objects.
-  Each object must have these keys: "name", "address", "lat" (number), "lng" (number), "uri" (Google Maps link if available), "serviceTimes" (array of strings).
-  Do not include markdown formatting.`;
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: prompt,
-    config: {
-      tools: [{ googleMaps: {} }],
-    }
+  const response = await fetch('/api/church/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
   });
 
-  const text = response.text;
-  if (!text) return [];
-
-  try {
-    const results = cleanAndParseJSON(text);
-    if (Array.isArray(results)) {
-        return results.filter((r: any) => 
-            r && 
-            typeof r.name === 'string' && 
-            typeof r.lat === 'number' && 
-            typeof r.lng === 'number'
-        );
-    }
-    return [];
-  } catch (e) {
-    return [];
+  if (!response.ok) {
+    throw new Error('Church search failed');
   }
+
+  return response.json();
 };
 
 /**

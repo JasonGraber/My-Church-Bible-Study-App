@@ -44,6 +44,14 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ settings, onComplete })
     }
   };
 
+  const handleSkip = () => {
+    const updatedSettings: UserSettings = {
+        ...settings,
+    };
+    saveSettings(updatedSettings);
+    onComplete(updatedSettings);
+  };
+
   const handleSelect = (result: SearchResult) => {
     const updatedSettings: UserSettings = {
         ...settings,
@@ -136,6 +144,13 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ settings, onComplete })
                         ))}
                     </div>
                 )}
+
+                <button
+                    onClick={handleSkip}
+                    className="w-full text-center text-sm text-gray-500 hover:text-gray-300 py-3 transition-colors"
+                >
+                    Skip for now
+                </button>
             </div>
         </div>
     </div>
