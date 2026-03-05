@@ -21,6 +21,7 @@ export interface UserSettings {
   studyDuration: StudyDuration;
   studyLength: StudyLength;
   supportingReferencesCount: number;
+  notificationsEnabled: boolean;
   notificationTime: string; // "08:00"
   churchLocation: GeoLocation | null;
   churchName: string;
@@ -158,6 +159,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   studyDuration: StudyDuration.FIVE_DAY,
   studyLength: StudyLength.MEDIUM,
   supportingReferencesCount: 2,
+  notificationsEnabled: false,
   notificationTime: "07:00",
   churchLocation: null,
   churchName: "",

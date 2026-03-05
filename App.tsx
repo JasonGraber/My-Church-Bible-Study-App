@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { AppView, SermonStudy, UserSettings, DEFAULT_SETTINGS, User } from './types';
-// Fixed: Imported getUser instead of getCurrentUser (which is not exported by name from storageService)
 import { getSettings, getUser } from './services/storageService';
 import { initializeSession } from './services/authService';
 import { supabase } from './services/supabaseClient';
+import { scheduleReminder, clearReminder } from './services/notificationService';
 import NavBar from './components/NavBar';
 import RecordView from './views/RecordView';
 import StudyDashboard from './views/StudyDashboard';
@@ -28,6 +28,16 @@ const App: React.FC = () => {
   
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [initialRecordAction, setInitialRecordAction] = useState<'UPLOAD_AUDIO' | 'SCAN_NOTES' | 'PASTE_TEXT' | 'SCAN_BULLETIN' | null>(null);
+
+  // Re-schedule notification reminder whenever settings change
+  useEffect(() => {
+    if (settings.notificationsEnabled && user) {
+      scheduleReminder(settings.notificationTime);
+    } else {
+      clearReminder();
+    }
+    return () => clearReminder();
+  }, [settings.notificationsEnabled, settings.notificationTime, user]);
 
   useEffect(() => {
     // Check URL Params

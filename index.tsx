@@ -3,9 +3,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
+import { registerServiceWorker } from './services/notificationService';
 
-// Service Worker registration has been removed to prevent cross-origin errors 
-// in the preview environment where assets are served from a different domain.
+// Register service worker for PWA + notification support
+registerServiceWorker();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
