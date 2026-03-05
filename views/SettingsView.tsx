@@ -4,6 +4,7 @@ import { UserSettings, StudyDuration, StudyLength, GeoLocation, DEFAULT_SETTINGS
 import { saveSettings, getSettings, getUser, logoutUser, updateUser, syncLocalDataToCloud } from '../services/storageService';
 import { getCurrentLocation } from '../services/geoService';
 import { searchChurch } from '../services/geminiService';
+import { requestNotificationPermission, getNotificationPermission, scheduleReminder, clearReminder } from '../services/notificationService';
 
 interface SettingsViewProps {
   onUpdate: (settings: UserSettings) => void;
@@ -239,17 +240,54 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
             <label className="block text-sm font-medium text-gray-400 uppercase tracking-wide">Notifications</label>
             <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 space-y-4">
                 <div className="flex items-center justify-between">
-                    <span className="text-gray-300 text-sm">Morning Reminder</span>
-                    <input 
-                        type="time" 
-                        value={localSettings.notificationTime} 
-                        onChange={(e) => setLocalSettings({...localSettings, notificationTime: e.target.value})}
-                        className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white outline-none"
-                    />
+                    <div>
+                        <span className="text-gray-300 text-sm">Daily Study Reminder</span>
+                        {getNotificationPermission() === 'denied' && (
+                            <p className="text-[10px] text-red-400 mt-0.5">Blocked in browser settings</p>
+                        )}
+                        {getNotificationPermission() === 'unsupported' && (
+                            <p className="text-[10px] text-yellow-400 mt-0.5">Not supported in this browser</p>
+                        )}
+                    </div>
+                    <button
+                        onClick={async () => {
+                            if (localSettings.notificationsEnabled) {
+                                clearReminder();
+                                setLocalSettings({...localSettings, notificationsEnabled: false});
+                            } else {
+                                const granted = await requestNotificationPermission();
+                                if (granted) {
+                                    setLocalSettings({...localSettings, notificationsEnabled: true});
+                                    scheduleReminder(localSettings.notificationTime);
+                                } else {
+                                    alert('Notification permission was denied. Please enable notifications in your browser settings.');
+                                }
+                            }
+                        }}
+                        disabled={getNotificationPermission() === 'unsupported'}
+                        className={`w-12 h-6 rounded-full transition-colors relative ${localSettings.notificationsEnabled ? 'bg-purple-600' : 'bg-gray-700'} disabled:opacity-40`}
+                    >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${localSettings.notificationsEnabled ? 'right-1' : 'left-1'}`} />
+                    </button>
                 </div>
+                {localSettings.notificationsEnabled && (
+                    <div className="flex items-center justify-between">
+                        <span className="text-gray-300 text-sm">Reminder Time</span>
+                        <input
+                            type="time"
+                            value={localSettings.notificationTime}
+                            onChange={(e) => {
+                                const newTime = e.target.value;
+                                setLocalSettings({...localSettings, notificationTime: newTime});
+                                scheduleReminder(newTime);
+                            }}
+                            className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white outline-none"
+                        />
+                    </div>
+                )}
                 <div className="flex items-center justify-between">
                     <span className="text-gray-300 text-sm">Sunday Geofence Alerts</span>
-                    <button 
+                    <button
                         onClick={() => setLocalSettings({...localSettings, sundayReminderEnabled: !localSettings.sundayReminderEnabled})}
                         className={`w-12 h-6 rounded-full transition-colors relative ${localSettings.sundayReminderEnabled ? 'bg-purple-600' : 'bg-gray-700'}`}
                     >

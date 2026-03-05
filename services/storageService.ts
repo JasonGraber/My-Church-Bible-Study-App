@@ -79,6 +79,7 @@ export const getSettings = (): UserSettings => {
                studyDuration: user.settings.studyDuration ?? localSettings.studyDuration,
                studyLength: user.settings.studyLength ?? localSettings.studyLength,
                supportingReferencesCount: user.settings.supportingReferencesCount ?? localSettings.supportingReferencesCount,
+               notificationsEnabled: user.settings.notificationsEnabled ?? localSettings.notificationsEnabled,
                notificationTime: user.settings.notificationTime ?? localSettings.notificationTime,
                churchLocation: user.settings.churchLocation ?? localSettings.churchLocation,
                churchName: user.settings.churchName ?? localSettings.churchName,
