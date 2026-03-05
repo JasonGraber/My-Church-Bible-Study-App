@@ -24,8 +24,14 @@ ENV SUPABASE_URL=$SUPABASE_URL
 ENV SUPABASE_KEY=$SUPABASE_KEY
 ENV COMMIT_SHA=$COMMIT_SHA
 
-# Build the application
-RUN npm run build
+# Build the application and verify output is correct
+RUN npm run build && \
+    echo "--- Build verification ---" && \
+    ls -la dist/ && \
+    ls -la dist/assets/ && \
+    grep -q '/assets/index-' dist/index.html && \
+    echo "Build verified: dist/index.html references bundled JS" || \
+    (echo "ERROR: dist/index.html does not reference bundled JS" && cat dist/index.html && exit 1)
 
 # Production stage
 FROM node:20-alpine
