@@ -4,6 +4,8 @@ import { UserSettings, AppView, SermonStudy } from '../types';
 import { generateBibleStudy, processBulletin } from '../services/geminiService';
 import { saveStudy, saveBulletin } from '../services/storageService';
 import { calculateDistance, getCurrentLocation, GEOFENCE_RADIUS_METERS } from '../services/geoService';
+import { SermonRecorder, readRecording, formatDuration, Recording, RecorderStatus } from '../services/recorderService';
+import { isNative } from '../services/platform';
 
 interface RecordViewProps {
   settings: UserSettings;
@@ -12,7 +14,9 @@ interface RecordViewProps {
   initialAction?: 'UPLOAD_AUDIO' | 'SCAN_NOTES' | 'PASTE_TEXT' | 'SCAN_BULLETIN' | 'YOUTUBE_URL' | null;
 }
 
-type ProcessingStep = 'IDLE' | 'OPTIMIZING' | 'ANALYZING' | 'RESEARCHING' | 'FINALIZING';
+type ProcessingStep = 'IDLE' | 'OPTIMIZING' | 'UPLOADING' | 'ANALYZING' | 'RESEARCHING' | 'FINALIZING';
+
+const RECORDING_NOTICE_KEY = 'recording_notice_seen';
 
 const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, setView, initialAction }) => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -30,6 +34,11 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
   const [youtubeUrlInput, setYoutubeUrlInput] = useState("");
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [showImagePreview, setShowImagePreview] = useState(false);
+
+  const [recStatus, setRecStatus] = useState<RecorderStatus>({ state: 'idle', durationMs: 0, level: 0 });
+  const [showRecordNotice, setShowRecordNotice] = useState(false);
+  const [savedRecordings, setSavedRecordings] = useState<Recording[]>([]);
+  const isRecording = recStatus.state !== 'idle';
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageGalleryRef = useRef<HTMLInputElement>(null);
@@ -68,7 +77,7 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
         setGeoStatus("Location unavailable");
       }
     };
-    const interval = setInterval(checkLocation, 10000); 
+    const interval = setInterval(checkLocation, 60000);
     checkLocation();
     return () => clearInterval(interval);
   }, [settings]);
@@ -100,13 +109,6 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
       setIsProcessing(true);
       setProcessingStep(step);
       setError(null);
-      if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = window.setTimeout(() => {
-          if (isProcessing) {
-              handleError("Processing Timeout", "The server is taking too long to respond. Don't worry, your data might still be processing in the background.");
-              setIsProcessing(false);
-          }
-      }, 120000); // 2 minute timeout for Gemini
   };
 
   const handleError = (msg: string, detail?: string) => {
@@ -115,12 +117,104 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
       setProcessingStep('IDLE');
   };
 
+  // ---- Recording ----------------------------------------------------------
+  const refreshSaved = () => SermonRecorder.listSaved().then((r) => setSavedRecordings(r.recordings)).catch(() => undefined);
+
+  useEffect(() => {
+    // A recording keeps running when the app is closed, so pick it back up on return.
+    SermonRecorder.getStatus().then(setRecStatus).catch(() => undefined);
+    refreshSaved();
+  }, []);
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const timer = setInterval(async () => {
+      try {
+        const status = await SermonRecorder.getStatus();
+        setRecStatus(status);
+        if (status.error) handleError("Recording Stopped", status.error);
+      } catch { /* keep the last known status */ }
+    }, 400);
+    return () => clearInterval(timer);
+  }, [isRecording]);
+
+  const beginRecording = async () => {
+    setShowRecordNotice(false);
+    localStorage.setItem(RECORDING_NOTICE_KEY, '1');
+    try {
+      await SermonRecorder.start();
+      setRecStatus({ state: 'recording', durationMs: 0, level: 0 });
+    } catch (err: any) {
+      handleError("Could Not Record", err?.message || "The recording could not start.");
+    }
+  };
+
+  const handleRecordPress = () => {
+    if (localStorage.getItem(RECORDING_NOTICE_KEY)) beginRecording();
+    else setShowRecordNotice(true);
+  };
+
+  const togglePause = async () => {
+    try {
+      if (recStatus.state === 'recording') await SermonRecorder.pause(); else await SermonRecorder.resume();
+      setRecStatus(await SermonRecorder.getStatus());
+    } catch (err: any) {
+      handleError("Recording Problem", err?.message);
+    }
+  };
+
+  const discardRecording = async () => {
+    if (!window.confirm("Discard this recording? It cannot be recovered.")) return;
+    await SermonRecorder.cancel().catch(() => undefined);
+    setRecStatus({ state: 'idle', durationMs: 0, level: 0 });
+  };
+
+  const createStudyFromRecording = async (recording: Recording) => {
+    startProcessing('UPLOADING');
+    try {
+      const audioBlob = await readRecording(recording);
+      const newStudy = await generateBibleStudy(
+        { audioBlob, audioMimeType: recording.mimeType, audioDurationSeconds: recording.durationMs / 1000 },
+        settings,
+        (stage) => setProcessingStep(stage === 'UPLOADING' ? 'UPLOADING' : 'RESEARCHING')
+      );
+      setProcessingStep('FINALIZING');
+      await saveStudy(newStudy);
+      // Only now is it safe to remove the copy on the phone.
+      await SermonRecorder.remove({ path: recording.path }).catch(() => undefined);
+      onStudyGenerated(newStudy);
+      setView(AppView.STUDY_DETAIL);
+    } catch (err: any) {
+      handleError("Study Not Created", `${err.message}${isNative ? " Your recording is saved on this phone, so you can try again." : ""}`);
+      refreshSaved();
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const finishRecording = async () => {
+    try {
+      const recording = await SermonRecorder.stop();
+      setRecStatus({ state: 'idle', durationMs: 0, level: 0 });
+      await createStudyFromRecording(recording);
+    } catch (err: any) {
+      setRecStatus({ state: 'idle', durationMs: 0, level: 0 });
+      handleError("Recording Problem", err?.message || "Nothing was recorded.");
+    }
+  };
+
+  const deleteSaved = async (recording: Recording) => {
+    if (!window.confirm("Delete this saved recording?")) return;
+    await SermonRecorder.remove({ path: recording.path }).catch(() => undefined);
+    refreshSaved();
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    startProcessing('ANALYZING');
+    startProcessing('UPLOADING');
     try {
-        const newStudy = await generateBibleStudy({ audioBlob: file }, settings);
+        const newStudy = await generateBibleStudy({ audioBlob: file }, settings, (stage) => setProcessingStep(stage === 'UPLOADING' ? 'UPLOADING' : 'RESEARCHING'));
         setProcessingStep('FINALIZING');
         await saveStudy(newStudy);
         onStudyGenerated(newStudy);
@@ -203,12 +297,6 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
     if (!url) return;
     setShowYoutubeModal(false);
     startProcessing('RESEARCHING');
-    // YouTube videos (full sermons) can take longer than the default 2min timeout — extend to 5min
-    if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
-    timeoutRef.current = window.setTimeout(() => {
-        handleError("Processing Timeout", "The video took too long to process. Try a shorter video or paste the transcript instead.");
-        setIsProcessing(false);
-    }, 300000);
     try {
         const newStudy = await generateBibleStudy({ youtubeUrl: url }, settings);
         setProcessingStep('FINALIZING');
@@ -225,15 +313,17 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
 
   const stepMessages: Record<ProcessingStep, string> = {
       IDLE: "",
-      OPTIMIZING: "Optimizing Images...",
-      ANALYZING: "Reading Notes...",
-      RESEARCHING: "Crafting Study Plan...",
-      FINALIZING: "Saving Locally..."
+      OPTIMIZING: "Preparing photos...",
+      UPLOADING: "Uploading the recording...",
+      ANALYZING: "Reading your notes...",
+      RESEARCHING: "Writing your study...",
+      FINALIZING: "Saving..."
   };
 
   const stepProgress: Record<ProcessingStep, number> = {
       IDLE: 0,
       OPTIMIZING: 20,
+      UPLOADING: 25,
       ANALYZING: 40,
       RESEARCHING: 70,
       FINALIZING: 95
@@ -271,7 +361,49 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
       )}
 
       <div className="w-full max-w-md space-y-4">
-          <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 p-5 rounded-2xl flex items-center transition-all group shadow-lg">
+          {isRecording ? (
+            <div className="w-full bg-gray-800 border border-red-900/60 p-5 rounded-2xl shadow-lg" role="status" aria-live="off">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <span className={`h-3 w-3 rounded-full mr-3 ${recStatus.state === 'recording' ? 'bg-red-500 animate-pulse' : 'bg-yellow-500'}`}></span>
+                  <span className="font-bold text-white text-lg">{recStatus.state === 'recording' ? 'Recording' : 'Paused'}</span>
+                </div>
+                <span className="font-mono text-2xl text-white tabular-nums">{formatDuration(recStatus.durationMs)}</span>
+              </div>
+              <div className="h-2 bg-gray-900 rounded-full mt-4 overflow-hidden" aria-hidden="true">
+                <div className="h-full bg-red-500 rounded-full transition-all duration-300" style={{ width: `${Math.round(Math.max(0.03, recStatus.level) * 100)}%` }}></div>
+              </div>
+              <p className="text-xs text-gray-400 mt-3">{isNative ? "You can lock your phone or switch apps. Recording continues." : "Keep this tab open while recording."}</p>
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                <button onClick={togglePause} className="py-3 rounded-xl bg-gray-700 text-white font-bold">{recStatus.state === 'recording' ? 'Pause' : 'Resume'}</button>
+                <button onClick={finishRecording} className="py-3 rounded-xl bg-purple-600 text-white font-bold">Finish</button>
+              </div>
+              <button onClick={discardRecording} className="w-full mt-3 py-2 text-sm text-gray-400 underline">Discard recording</button>
+            </div>
+          ) : (
+            <button onClick={handleRecordPress} disabled={isProcessing} className="w-full bg-purple-700 hover:bg-purple-600 border border-purple-500 p-5 rounded-2xl flex items-center transition-all group shadow-lg">
+              <div className="h-14 w-14 rounded-full bg-white/15 text-white flex items-center justify-center mr-5 group-hover:scale-110 transition-transform"><svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-14 0m7 7v4m-4 0h8M12 3a3 3 0 00-3 3v5a3 3 0 006 0V6a3 3 0 00-3-3z" /></svg></div>
+              <div className="text-left"><h3 className="font-bold text-white text-lg">Record Message</h3><p className="text-sm text-purple-100">Start when the sermon begins</p></div>
+            </button>
+          )}
+
+          {savedRecordings.length > 0 && !isRecording && (
+            <div className="w-full bg-gray-800 border border-yellow-700/50 p-4 rounded-2xl">
+              <h3 className="text-sm font-bold text-yellow-400 mb-1">Saved on this phone</h3>
+              <p className="text-xs text-gray-400 mb-3">These recordings have not been turned into a study yet.</p>
+              {savedRecordings.map((rec) => (
+                <div key={rec.path} className="flex items-center justify-between py-2 border-t border-gray-700">
+                  <span className="text-sm text-gray-200">{rec.createdAt ? new Date(rec.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Recording'} · {(rec.size / 1048576).toFixed(1)} MB</span>
+                  <span className="flex gap-2">
+                    <button onClick={() => createStudyFromRecording(rec)} disabled={isProcessing} className="px-3 py-2 rounded-lg bg-purple-600 text-white text-xs font-bold">Create study</button>
+                    <button onClick={() => deleteSaved(rec)} className="px-3 py-2 rounded-lg bg-gray-700 text-gray-200 text-xs font-bold">Delete</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing || isRecording} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 p-5 rounded-2xl flex items-center transition-all group shadow-lg">
              <div className="h-14 w-14 rounded-full bg-red-900/20 text-red-500 flex items-center justify-center mr-5 group-hover:scale-110 transition-transform"><svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg></div>
              <div><h3 className="font-bold text-white text-lg">Upload Audio</h3><p className="text-sm text-gray-400">Use a recording or voice memo</p></div>
           </button>
@@ -298,7 +430,7 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
                         <div className="absolute inset-0 flex items-center justify-center"><span className="text-xl font-bold text-purple-400">{stepProgress[processingStep]}%</span></div>
                     </div>
                     <h3 className="text-xl font-bold text-white mb-2">{stepMessages[processingStep]}</h3>
-                    <p className="text-gray-400 text-sm text-center mb-4">Working with Gemini AI to craft your study.</p>
+                    <p className="text-gray-400 text-sm text-center mb-4">A full sermon can take a few minutes. Keep the app open.</p>
                     <button
                         onClick={() => { setIsProcessing(false); setProcessingStep('IDLE'); }}
                         className="text-gray-500 hover:text-gray-300 text-sm underline"
@@ -308,6 +440,18 @@ const RecordView: React.FC<RecordViewProps> = ({ settings, onStudyGenerated, set
                 </div>
            </div>
        )}
+
+      {showRecordNotice && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[70] p-6">
+              <div className="bg-gray-800 p-6 rounded-3xl border border-gray-700 max-w-sm w-full animate-slide-up">
+                  <h3 className="text-xl font-bold text-white mb-3">Before you record</h3>
+                  <p className="text-gray-300 text-sm mb-3">Make sure your church is happy for you to record the message for your own study.</p>
+                  <p className="text-gray-300 text-sm mb-5">The recording is sent to Google's AI service to write your study, then removed from our storage. The study is written by AI and can contain mistakes, so check it against your Bible.</p>
+                  <button onClick={beginRecording} className="w-full bg-purple-600 text-white font-bold py-3 rounded-xl">Start recording</button>
+                  <button onClick={() => setShowRecordNotice(false)} className="w-full mt-2 py-3 text-gray-400 font-medium">Not now</button>
+              </div>
+          </div>
+      )}
 
       {error && (
           <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-50 p-6">

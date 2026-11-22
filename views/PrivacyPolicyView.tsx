@@ -4,109 +4,71 @@ interface PrivacyPolicyViewProps {
   onBack: () => void;
 }
 
+// Keep this text in step with website/privacy.html.
 const PrivacyPolicyView: React.FC<PrivacyPolicyViewProps> = ({ onBack }) => {
   return (
-    <div className="h-full bg-gray-900 overflow-y-auto pb-safe">
-      <div className="sticky top-0 bg-gray-900 border-b border-gray-800 p-4 flex items-center z-10">
-        <button 
-          onClick={onBack}
-          className="flex items-center text-gray-400 hover:text-white transition-colors"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
+    <div className="h-full overflow-y-auto bg-gray-900 text-gray-300">
+      <div className="sticky top-0 bg-gray-900/95 border-b border-gray-800 px-4 py-3 z-10">
+        <button onClick={onBack} className="flex items-center text-gray-400 hover:text-white transition-colors min-h-[44px]">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
           Back
         </button>
-        <h1 className="ml-4 text-lg font-bold text-white">Privacy Policy</h1>
       </div>
-
-      <div className="p-6 max-w-2xl mx-auto text-gray-300 space-y-6">
-        <div className="space-y-2">
-          <p className="text-sm text-gray-500">Last Updated: October 27, 2023</p>
-          <p>
-            Welcome to My Church Bible Study. We respect your privacy and are committed to protecting the personal information you share with us. This Privacy Policy explains how we collect, use, and safeguard your data.
-          </p>
+      <div className="max-w-2xl mx-auto p-6 pb-16 space-y-6 text-sm leading-relaxed">
+        <div>
+          <h1 className="text-2xl font-serif font-bold text-white">Privacy Policy</h1>
+          <p className="text-xs text-gray-500 mt-1">Last updated: November 22, 2026</p>
         </div>
-
-        <section className="space-y-2">
-          <h2 className="text-xl font-bold text-white">1. Data Collection and Storage</h2>
-          <p>
-            <strong>Local Storage:</strong> This application primarily operates using local storage on your device. Your sermon recordings, generated study plans, and personal settings are stored locally on your phone or computer.
-          </p>
-          <p>
-            <strong>Account Information:</strong> If you create an account, your basic profile information (name, email) is stored to personalize your experience. In this demo version, this data resides in your browser's local storage.
-          </p>
+        <section>
+          <h2 className="text-lg font-bold text-white mb-2">What this app does</h2>
+          <p className="mb-2">My Church Bible Study turns a sermon into a week of Bible study. This page says what information the app handles, where it goes, and what you can do about it.</p>
         </section>
-
-        <section className="space-y-2 bg-gray-800/50 p-4 rounded-xl border border-gray-700">
-          <h2 className="text-xl font-bold text-white">2. Google User Data Access & Usage</h2>
-          <p>
-            Our application uses Google OAuth to allow you to sign in securely. If you choose to sign in with Google, we access and use your data as follows:
-          </p>
-          
-          <div className="mt-3 space-y-3">
-            <div>
-                <strong className="text-purple-400 block mb-1">Data Accessed:</strong>
-                <ul className="list-disc pl-5 space-y-1 text-sm">
-                    <li><strong>Google Account Profile:</strong> We access your Full Name and Profile Picture URL.</li>
-                    <li><strong>Email Address:</strong> We access your email address associated with your Google Account.</li>
-                    <li><strong>Google User ID:</strong> We access your unique Google identifier.</li>
-                </ul>
-            </div>
-
-            <div>
-                <strong className="text-purple-400 block mb-1">Data Usage:</strong>
-                <ul className="list-disc pl-5 space-y-1 text-sm">
-                    <li><strong>Authentication:</strong> We use your Google User ID and Email to verify your identity and securely log you into the application without requiring a separate password.</li>
-                    <li><strong>Profile Creation:</strong> We use your Name and Profile Picture to automatically create and populate your user profile within the app, allowing you to interact with the community features.</li>
-                </ul>
-            </div>
-          </div>
-
-          <p className="mt-4 text-sm text-gray-400 italic">
-            We do not sell your Google User Data. We do not share your Google User Data with third parties, except as required for the authentication process itself (communicating with Google servers).
-          </p>
-          
-          <p className="mt-2 text-sm text-gray-400">
-            My Church Bible Study's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">Google API Services User Data Policy</a>, including the Limited Use requirements.
-          </p>
-        </section>
-
-        <section className="space-y-2">
-          <h2 className="text-xl font-bold text-white">3. AI and Third-Party Processing</h2>
-          <p>
-            To generate Bible studies and extract information from bulletins, we utilize Google's Gemini API. When you use these features:
-          </p>
-          <ul className="list-disc pl-5 space-y-1">
-            <li>Audio recordings, text transcripts, and images you upload are sent to Google's servers for processing.</li>
-            <li>This data is used solely to generate the content you requested (e.g., a study plan).</li>
-            <li>We do not retain this data on our own servers after processing is complete.</li>
+        <section>
+          <h2 className="text-lg font-bold text-white mb-2">What we collect</h2>
+          <ul className="list-disc pl-5 space-y-2">
+            <li><strong className="text-white">Account details.</strong> Your name and email address and, if you sign in with Google or Apple, the profile picture and account identifier they provide.</li>
+            <li><strong className="text-white">What you give the app to make a study.</strong> Sermon audio you record or upload, photos of notes or bulletins, text you paste, and YouTube links.</li>
+            <li><strong className="text-white">What the app makes for you.</strong> Your studies, which days you have finished, and events read from a bulletin.</li>
+            <li><strong className="text-white">What you post.</strong> Comments, prayer requests, testimonies, your profile and the friends you add.</li>
+            <li><strong className="text-white">Your settings.</strong> Your church&apos;s name and location, service times, study preferences and reminder time.</li>
           </ul>
         </section>
-
-        <section className="space-y-2">
-          <h2 className="text-xl font-bold text-white">4. Geolocation Data</h2>
-          <p>
-            We use your device's geolocation services to provide location-based features, such as identifying when you are at your church to prompt recording.
-          </p>
-          <ul className="list-disc pl-5 space-y-1">
-            <li>Your precise location data is processed locally on your device.</li>
-            <li>We do not track, store, or share your location history.</li>
+        <section>
+          <h2 className="text-lg font-bold text-white mb-2">Where it goes</h2>
+          <ul className="list-disc pl-5 space-y-2">
+            <li><strong className="text-white">Our database.</strong> Account details, studies, progress, posts and settings are stored with Supabase, our database and sign-in provider.</li>
+            <li><strong className="text-white">Google, for AI processing.</strong> Audio, photos, text and transcripts are sent to Google&apos;s Gemini service to write the study or read the bulletin. Church search also goes through Google. A recording is removed from our storage as soon as its study has been written.</li>
+            <li><strong className="text-white">Sign-in providers.</strong> If you choose Google or Apple sign-in, that company confirms who you are.</li>
+          </ul>
+          <p className="mb-2">We do not sell your information and we do not use it for advertising.</p>
+        </section>
+        <section>
+          <h2 className="text-lg font-bold text-white mb-2">Location</h2>
+          <p className="mb-2">If you allow it, the app checks your location while it is open to tell whether you are at your church. That check happens on your phone. We do not keep a history of where you have been.</p>
+        </section>
+        <section>
+          <h2 className="text-lg font-bold text-white mb-2">What other people can see</h2>
+          <p className="mb-2">Your name and profile picture are visible to other people using the app. A study is visible to the people you share it with. Posts and comments are visible to other members unless you or they have blocked the other. Your email address is not shown to other users.</p>
+        </section>
+        <section>
+          <h2 className="text-lg font-bold text-white mb-2">Google user data</h2>
+          <p className="mb-2">If you sign in with Google, we receive your name, email address, profile picture and Google account identifier, and use them only to sign you in and set up your profile. Our use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noreferrer" className="text-purple-400 underline">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+        </section>
+        <section>
+          <h2 className="text-lg font-bold text-white mb-2">Your choices</h2>
+          <ul className="list-disc pl-5 space-y-2">
+            <li>Delete any study, event or post you created.</li>
+            <li>Delete your account and everything stored with it, in Settings under Account.</li>
+            <li>Turn off location, notifications, camera or microphone access in your phone&apos;s settings at any time.</li>
           </ul>
         </section>
-
-        <section className="space-y-2">
-          <h2 className="text-xl font-bold text-white">5. User Rights</h2>
-          <p>
-            Since your data is stored locally, you have full control over it. You can delete specific studies, events, or your entire account profile directly within the app settings, which will remove the data from your device.
-          </p>
+        <section>
+          <h2 className="text-lg font-bold text-white mb-2">Children</h2>
+          <p className="mb-2">The app is not intended for children under 13, and we do not knowingly collect information from them.</p>
         </section>
-
-        <section className="space-y-2">
-          <h2 className="text-xl font-bold text-white">6. Contact Us</h2>
-          <p>
-            If you have any questions about this Privacy Policy, please contact us through your church administrator or support channels.
-          </p>
+        <section>
+          <h2 className="text-lg font-bold text-white mb-2">Changes and contact</h2>
+          <p className="mb-2">If this policy changes, the date at the top changes with it. Questions go to the support address listed at mychurchbiblestudy.com/support.</p>
         </section>
       </div>
     </div>

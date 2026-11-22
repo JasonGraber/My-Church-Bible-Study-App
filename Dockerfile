@@ -3,8 +3,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files. The recorder plugin is a local package that package.json points at.
 COPY package*.json ./
+COPY plugins ./plugins
 
 # Install dependencies
 RUN npm ci
@@ -13,13 +14,11 @@ RUN npm ci
 COPY . .
 
 # Build arguments for environment variables (injected at build time)
-ARG GEMINI_API_KEY
 ARG SUPABASE_URL
 ARG SUPABASE_KEY
 ARG COMMIT_SHA=dev
 
 # Set environment variables for the build
-ENV GEMINI_API_KEY=$GEMINI_API_KEY
 ENV SUPABASE_URL=$SUPABASE_URL
 ENV SUPABASE_KEY=$SUPABASE_KEY
 ENV COMMIT_SHA=$COMMIT_SHA
@@ -40,6 +39,7 @@ WORKDIR /app
 
 # Copy package files and install production dependencies only
 COPY package*.json ./
+COPY plugins ./plugins
 RUN npm ci --omit=dev
 
 # Copy built frontend assets from builder stage
@@ -47,6 +47,11 @@ COPY --from=builder /app/dist ./dist
 
 # Copy Express server
 COPY server.js ./
+
+# The server needs these when it runs (set on the Cloud Run service, not baked into the image):
+#   GEMINI_API_KEY, SUPABASE_URL, SUPABASE_KEY
+ARG COMMIT_SHA=dev
+ENV COMMIT_SHA=$COMMIT_SHA
 
 # Expose port 8080 (Cloud Run default)
 EXPOSE 8080

@@ -1,6 +1,6 @@
 
 import { UserSettings, SermonStudy, DEFAULT_SETTINGS, Bulletin, Post, Comment, StudyParticipant, StudyDayComment } from '../types';
-import { getCurrentUser, updateUser, ensureValidSession } from './authService';
+import { getCurrentUser, updateUser, ensureValidSession, setCachedFriends as updateUserFriendsCache } from './authService';
 import { supabase } from './supabaseClient';
 
 const SETTINGS_KEY_PREFIX = 'sermon_scribe_settings_';
@@ -236,7 +236,10 @@ export const getStudyById = async (id: string): Promise<SermonStudy | null> => {
     if (!supabase) return null;
     try {
         const { data } = await supabase.from('studies').select('*').eq('id', id).maybeSingle();
-        return data ? mapStudyFromDB(data) : null;
+        if (data) return mapStudyFromDB(data);
+        // Not ours and not joined yet: a study id from a share link or a friend's post opens it.
+        const { data: shared } = await supabase.rpc('get_shared_study', { p_study: id });
+        return Array.isArray(shared) && shared[0] ? mapStudyFromDB(shared[0]) : null;
     } catch (e) {
         return null;
     }
@@ -448,10 +451,10 @@ export const savePost = async (post: Post): Promise<void> => {
         type: post.type,
         study_id: post.studyId,
         study_data: post.studyData,
-        likes: post.likes,
-        liked_by_users: post.isLikedByCurrentUser ? [post.userId] : []
+        likes: 0,
+        liked_by_users: []
     };
-    const { error } = await supabase.from('posts').upsert(payload);
+    const { error } = await supabase.from('posts').insert(payload);
     
     if (error) {
         if (error.message.includes('column "study_data" of relation "posts" does not exist') || error.message.includes('schema cache')) {
@@ -462,27 +465,10 @@ export const savePost = async (post: Post): Promise<void> => {
 };
 
 export const updatePost = async (post: Post): Promise<void> => {
-    if (!supabase) return;
-    const user = getCurrentUser();
-    if (!user) return;
-
-    try {
-        const { data } = await supabase.from('posts').select('liked_by_users').eq('id', post.id).maybeSingle();
-        let likedBy = Array.isArray(data?.liked_by_users) ? data.liked_by_users : [];
-        
-        if (post.isLikedByCurrentUser) {
-            if (!likedBy.includes(user.id)) likedBy.push(user.id);
-        } else {
-            likedBy = likedBy.filter((id: string) => id !== user.id);
-        }
-
-        await supabase.from('posts').update({ 
-            likes: likedBy.length,
-            liked_by_users: likedBy 
-        }).eq('id', post.id);
-    } catch (e) {
-        console.warn("Post like update failed", e);
-    }
+    if (!supabase || !getCurrentUser()) return;
+    // The only change anyone makes to a post after writing it is liking it.
+    const { error } = await supabase.rpc('toggle_like', { p_post: post.id });
+    if (error) console.warn("Like failed:", error.message);
 };
 
 export const addComment = async (postId: string, comment: Comment): Promise<void> => {
@@ -832,4 +818,49 @@ export const getStudiesWithParticipants = async (): Promise<SermonStudy[]> => {
     );
 
     return allStudies;
+};
+
+// --- Community safety ---
+
+export type ReportTarget = 'post' | 'comment' | 'day_comment' | 'user' | 'study';
+
+export const reportContent = async (targetType: ReportTarget, targetId: string, targetUserId: string | undefined, reason: string): Promise<void> => {
+    const user = getCurrentUser();
+    if (!user || !supabase) throw new Error("Please sign in again.");
+    const { error } = await supabase.from('content_reports').insert({
+        reporter_id: user.id, target_type: targetType, target_id: targetId, target_user_id: targetUserId || null,
+        reason: reason.trim().slice(0, 2000) || 'No reason given'
+    });
+    if (error) throw new Error("Your report could not be sent. Please try again.");
+};
+
+/** Blocking hides each person's posts and comments from the other and ends the friendship. */
+export const blockUser = async (targetUserId: string): Promise<void> => {
+    if (!supabase) return;
+    const { error } = await supabase.rpc('block_user', { p_target: targetUserId });
+    if (error) throw new Error("That person could not be blocked. Please try again.");
+    const me = getCurrentUser();
+    if (me) await updateUserFriendsCache((me.friends || []).filter(id => id !== targetUserId));
+};
+
+export const unblockUser = async (targetUserId: string): Promise<void> => {
+    const user = getCurrentUser();
+    if (!user || !supabase) return;
+    await supabase.from('user_blocks').delete().eq('blocker_id', user.id).eq('blocked_id', targetUserId);
+};
+
+export const getBlockedUsers = async (): Promise<{ id: string; name: string }[]> => {
+    const user = getCurrentUser();
+    if (!user || !supabase) return [];
+    const { data: blocks } = await supabase.from('user_blocks').select('blocked_id').eq('blocker_id', user.id);
+    const ids = (blocks || []).map((b: any) => b.blocked_id);
+    if (ids.length === 0) return [];
+    const { data: profiles } = await supabase.from('profiles').select('id, name').in('id', ids);
+    return ids.map((id: string) => ({ id, name: profiles?.find((p: any) => p.id === id)?.name || 'Member' }));
+};
+
+export const deletePost = async (postId: string): Promise<void> => {
+    if (!supabase) return;
+    const { error } = await supabase.from('posts').delete().eq('id', postId);
+    if (error) throw new Error("That post could not be deleted.");
 };

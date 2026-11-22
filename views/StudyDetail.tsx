@@ -321,6 +321,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ study: initialStudy, onBack }
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6 max-w-md mx-auto w-full">
         <div className="space-y-8 animate-fade-in">
+            <p className="text-[11px] text-gray-500 text-center">Written by AI from the sermon. It can contain mistakes, so check it against your Bible.</p>
             
             {/* Title & Scripture */}
             <div className="text-center space-y-3">

@@ -1,4 +1,5 @@
 
+import { openCalendarFile } from '../services/shareService';
 import React, { useState, useEffect } from 'react';
 import { Bulletin, ChurchEvent } from '../types';
 import { getBulletins, deleteBulletin, deleteEvent } from '../services/storageService';
@@ -74,7 +75,6 @@ const EventsView: React.FC<EventsViewProps> = ({ onScanBulletin }) => {
       const icsContent = `BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
-URL:${document.location.href}
 DTSTART:${startDate}T${startTime}
 SUMMARY:${event.title}
 DESCRIPTION:${event.description}
@@ -82,14 +82,7 @@ LOCATION:${event.location}
 END:VEVENT
 END:VCALENDAR`;
 
-      const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${event.title.replace(/[^a-z0-9]/gi, '_')}.ics`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      openCalendarFile(event.title, icsContent);
   };
 
   const handleDeleteBulletin = async (id: string) => {

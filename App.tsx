@@ -4,7 +4,11 @@ import { AppView, SermonStudy, UserSettings, DEFAULT_SETTINGS, User } from './ty
 import { getSettings, getUser } from './services/storageService';
 import { initializeSession } from './services/authService';
 import { supabase } from './services/supabaseClient';
-import { scheduleReminder, clearReminder } from './services/notificationService';
+import { syncReminders } from './services/notificationService';
+import { App as NativeApp } from '@capacitor/app';
+import { isNative } from './services/platform';
+import { completeOAuthSignIn } from './services/authService';
+import { getStudyById } from './services/storageService';
 import NavBar from './components/NavBar';
 import RecordView from './views/RecordView';
 import StudyDashboard from './views/StudyDashboard';
@@ -31,13 +35,48 @@ const App: React.FC = () => {
 
   // Re-schedule notification reminder whenever settings change
   useEffect(() => {
-    if (settings.notificationsEnabled && user) {
-      scheduleReminder(settings.notificationTime);
-    } else {
-      clearReminder();
-    }
-    return () => clearReminder();
-  }, [settings.notificationsEnabled, settings.notificationTime, user]);
+    syncReminders(settings, !!user);
+  }, [settings.notificationsEnabled, settings.notificationTime, settings.sundayReminderEnabled, JSON.stringify(settings.serviceTimes || []), settings.churchName, user?.id]);
+
+  // A study opened from a share link: https://mychurchbiblestudy.com/?study=<id>
+  const [pendingStudyId, setPendingStudyId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('study'));
+  useEffect(() => {
+    if (!user || !pendingStudyId) return;
+    const id = pendingStudyId;
+    setPendingStudyId(null);
+    getStudyById(id).then((study) => {
+      if (study) { setSelectedStudy(study); setCurrentView(AppView.STUDY_DETAIL); }
+    });
+    if (!isNative) window.history.replaceState({}, '', window.location.pathname);
+  }, [user?.id, pendingStudyId]);
+
+  // Phone apps: links that open the app (returning from sign-in, or a shared study) and the Android back button.
+  useEffect(() => {
+    if (!isNative) return;
+    const opened = NativeApp.addListener('appUrlOpen', async ({ url }) => {
+      try {
+        if (await completeOAuthSignIn(url)) return;
+        const study = new URL(url).searchParams.get('study');
+        if (study) setPendingStudyId(study);
+      } catch (e) {
+        console.error('Could not finish sign-in:', e);
+        setAuthLoading(false);
+      }
+    });
+    return () => { opened.then((h) => h.remove()); };
+  }, []);
+
+  useEffect(() => {
+    if (!isNative) return;
+    const back = NativeApp.addListener('backButton', () => {
+      if (currentView === AppView.STUDY_DETAIL) setCurrentView(AppView.HISTORY);
+      else if (currentView === AppView.PROFILE) handleProfileBack();
+      else if (currentView === AppView.PRIVACY_POLICY || currentView === AppView.TERMS_OF_SERVICE) handleLegalBack();
+      else if (currentView !== AppView.RECORD && currentView !== AppView.ONBOARDING && user) setCurrentView(AppView.RECORD);
+      else NativeApp.minimizeApp();
+    });
+    return () => { back.then((h) => h.remove()); };
+  }, [currentView, user?.id, previousView]);
 
   useEffect(() => {
     // Check URL Params
@@ -160,7 +199,7 @@ const App: React.FC = () => {
     // This prevents redirecting to RecordView if the user was deeplinked or reloading
     // Note: accessing currentView here relies on closure, which might be stale on auth refresh.
     // Ideally we assume if they have settings, they are good.
-    if (!loggedInUser.settings?.churchName) {
+    if (!loggedInUser.settings?.churchName && !localStorage.getItem(`onboarding_done_${loggedInUser.id}`)) {
          // If no church set, force onboarding unless viewing legal docs
          if (window.location.search.includes('view=')) return; 
          setCurrentView(AppView.ONBOARDING);
@@ -184,6 +223,7 @@ const App: React.FC = () => {
   };
   
   const handleOnboardingComplete = (newSettings: UserSettings) => {
+      if (user) localStorage.setItem(`onboarding_done_${user.id}`, '1');
       setSettings(newSettings);
       setCurrentView(AppView.RECORD);
   };
@@ -234,7 +274,7 @@ const App: React.FC = () => {
       }
   };
 
-  if (authLoading) return <div className="flex h-screen w-screen items-center justify-center bg-gray-900 text-white flex-col space-y-4">
+  if (authLoading) return <div className="flex h-full w-full items-center justify-center bg-gray-900 text-white flex-col space-y-4">
       <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-500"></div>
       <p className="text-gray-400 text-sm">Loading...</p>
   </div>;
@@ -309,7 +349,7 @@ const App: React.FC = () => {
     currentView !== AppView.PROFILE;
 
   return (
-    <div className="h-screen w-screen bg-gray-900 text-white overflow-hidden flex flex-col">
+    <div className="h-full w-full bg-gray-900 text-white overflow-hidden flex flex-col">
         <main className="flex-1 h-full overflow-hidden relative">
             {renderView()}
         </main>

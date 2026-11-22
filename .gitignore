@@ -22,3 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Supabase CLI scratch files
+supabase/.temp
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Native build output
+plugins/*/android/build
+plugins/*/android/.gradle

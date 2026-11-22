@@ -2,6 +2,25 @@
 
 Written 2026-11-22 from a full read of this repo at commit `5dfa446`.
 
+## Status on 2026-11-22 (later the same day)
+
+Done and checked:
+
+- **Phase 1, backend.** Every AI call now runs on the server behind sign-in and a daily quota. The key is out of the web bundle. Access rules were rewritten and applied to the live database, with 14 automated checks using two throwaway accounts. Tailwind is bundled. Dead files are gone.
+- **Phase 2, recording on Android.** Our own recorder plugin. On an emulator it kept recording for 20 seconds with the app in the background and the screen off, uploaded to private storage, and kept the copy on the phone when study creation failed.
+- **Phase 3, Android app.** Capacitor project, signed release APK and Play bundle. Reminders use the phone's scheduler. Native share sheet, calendar handoff, sign-in return link, back button.
+- **Phase 4 in the app.** Delete account (tested on the emulator), report and block, AI notice, recording consent notice, updated privacy and terms screens.
+
+Not done or not checked:
+
+- **Study generation end to end.** No working Gemini key was available on the build machine, so the server's AI calls have not been run since the rewrite.
+- **The server is not deployed.** The old Cloud Run address returns 404.
+- **iOS.** Project and Swift recorder are written but have never been compiled. See `docs/RELEASING.md`.
+- **A real phone.** Everything above was on an emulator.
+- Push notifications, offline reading of saved studies, Sign in with Apple setup, store listings.
+
+The rest of this document is the original plan.
+
 ## The short version
 
 - **Approach:** keep the React app and wrap it with Capacitor. One codebase ships to the web, the Play Store and the App Store. A rewrite in React Native or Flutter would throw away about 5,900 lines of working screens to get to the same place.
