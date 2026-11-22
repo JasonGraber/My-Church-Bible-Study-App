@@ -1,6 +1,8 @@
 
 import { User } from '../types';
 import { supabase } from './supabaseClient';
+import { Browser } from '@capacitor/browser';
+import { isNative, AUTH_CALLBACK_URL } from './platform';
 
 // Cache current user in memory for sync access in UI components
 let currentUserCache: User | null = null;
@@ -21,7 +23,7 @@ const mapSupabaseUser = (sbUser: any, profile: any, settings: any): User => {
             studyLength: settings.study_length,
             supportingReferencesCount: settings.supporting_references_count,
             notificationsEnabled: settings.notifications_enabled ?? false,
-            notificationTime: settings.notification_time,
+            notificationTime: String(settings.notification_time || '07:00').slice(0, 5), // stored as a time, comes back as HH:MM:SS
             serviceTimes: settings.service_times,
             geofenceEnabled: settings.geofence_enabled,
             sundayReminderEnabled: settings.sunday_reminder_enabled
@@ -99,13 +101,48 @@ export const loginUser = async (email: string, password: string): Promise<User> 
     throw new Error("Login failed");
 };
 
-export const initiateGoogleLogin = async (): Promise<void> => {
+/**
+ * Starts sign-in with Google or Apple. On the website this leaves the page. In the phone apps it
+ * opens the system browser, and completeOAuthSignIn() finishes the job when the app is reopened.
+ */
+export const initiateOAuthLogin = async (provider: 'google' | 'apple'): Promise<void> => {
     if (!supabase) throw new Error("Supabase not configured");
-    const redirectUrl = window.location.origin;
-    const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: redirectUrl, skipBrowserRedirect: true } });
+    const redirectUrl = isNative ? AUTH_CALLBACK_URL : window.location.origin;
+    const { data, error } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo: redirectUrl, skipBrowserRedirect: true } });
     if (error) throw error;
-    if (data?.url) window.location.href = data.url;
-    else throw new Error("No redirect URL");
+    if (!data?.url) throw new Error("No redirect URL");
+    if (isNative) await Browser.open({ url: data.url });
+    else window.location.href = data.url;
+};
+export const initiateGoogleLogin = () => initiateOAuthLogin('google');
+
+/** Called with the deep link the app was opened with. Returns true if it was a sign-in link. */
+export const completeOAuthSignIn = async (url: string): Promise<boolean> => {
+    if (!supabase || !url.startsWith(AUTH_CALLBACK_URL)) return false;
+    Browser.close().catch(() => undefined);
+    const code = new URL(url).searchParams.get('code');
+    if (!code) throw new Error("Sign-in was cancelled.");
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) throw error;
+    return true;
+};
+
+/** Removes the account and everything stored with it. There is no undo. */
+export const deleteAccount = async (): Promise<void> => {
+    if (!supabase || !currentUserCache) throw new Error("Please sign in again.");
+    // Stored recordings are removed first; the database function then removes the account and all its rows.
+    const folder = currentUserCache.id;
+    const { data: files } = await supabase.storage.from('sermon-audio').list(folder, { limit: 1000 });
+    if (files?.length) await supabase.storage.from('sermon-audio').remove(files.map((f: any) => `${folder}/${f.name}`));
+    const { error } = await supabase.rpc('delete_my_account');
+    if (error) throw new Error("Your account could not be deleted. Please try again.");
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+    currentUserCache = null;
+    localStorage.clear();
+};
+
+export const setCachedFriends = async (friends: string[]): Promise<void> => {
+    if (currentUserCache) currentUserCache = { ...currentUserCache, friends };
 };
 
 export const getCurrentUser = (): User | null => {
@@ -116,12 +153,13 @@ export const getUserById = async (id: string): Promise<User | undefined> => {
     if (!supabase) return undefined;
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', id).single();
     if (!profile) return undefined;
-    return { id: profile.id, email: profile.email || 'hidden', name: profile.name || 'Unknown', avatar: profile.avatar, bio: profile.bio, friends: profile.friends || [] };
+    return { id: profile.id, email: '', name: profile.name || 'Unknown', avatar: profile.avatar, bio: profile.bio, friends: profile.friends || [] };
 };
 
 export const updateUser = async (updatedUser: User): Promise<void> => {
     if (!supabase) return;
-    const profilePayload: any = { name: updatedUser.name, bio: updatedUser.bio, avatar: updatedUser.avatar, friends: updatedUser.friends };
+    // Friends are changed only through toggleFriend(); the database refuses a direct write.
+    const profilePayload: any = { name: updatedUser.name, bio: updatedUser.bio, avatar: updatedUser.avatar };
     await supabase.from('profiles').update(profilePayload).eq('id', updatedUser.id);
 
     if (updatedUser.settings) {
@@ -153,44 +191,14 @@ export const getCommunityUsers = async (): Promise<User[]> => {
     if (!supabase) return [];
     const { data: profiles } = await supabase.from('profiles').select('*').neq('id', currentUserCache?.id || '').limit(20);
     if (!profiles) return [];
-    return profiles.map((p: any) => ({ id: p.id, email: p.email, name: p.name, avatar: p.avatar, bio: p.bio, friends: p.friends || [] }));
+    return profiles.map((p: any) => ({ id: p.id, email: '', name: p.name, avatar: p.avatar, bio: p.bio, friends: p.friends || [] }));
 };
 
 export const toggleFriend = async (targetUserId: string): Promise<User | null> => {
     if (!currentUserCache || !supabase) return null;
-    const currentUserId = currentUserCache.id;
-    let newFriends = [...(currentUserCache.friends || [])];
-    const isRemoving = newFriends.includes(targetUserId);
-
-    if (isRemoving) {
-        newFriends = newFriends.filter(id => id !== targetUserId);
-    } else {
-        newFriends.push(targetUserId);
-    }
-
-    // Update current user's friend list
-    const updatedUser = { ...currentUserCache, friends: newFriends };
-    await updateUser(updatedUser);
-
-    // Update target user's friend list to keep friendship bidirectional
-    const { data: targetProfile } = await supabase
-        .from('profiles')
-        .select('friends')
-        .eq('id', targetUserId)
-        .single();
-
-    if (targetProfile) {
-        let targetFriends: string[] = targetProfile.friends || [];
-        if (isRemoving) {
-            targetFriends = targetFriends.filter((id: string) => id !== currentUserId);
-        } else if (!targetFriends.includes(currentUserId)) {
-            targetFriends = [...targetFriends, currentUserId];
-        }
-        await supabase
-            .from('profiles')
-            .update({ friends: targetFriends })
-            .eq('id', targetUserId);
-    }
-
-    return updatedUser;
+    // One database call updates both people's lists, so a friendship is always mutual.
+    const { data, error } = await supabase.rpc('toggle_friend', { p_target: targetUserId });
+    if (error) throw new Error(error.message || "Could not update your friends.");
+    currentUserCache = { ...currentUserCache, friends: Array.isArray(data) ? data : [] };
+    return currentUserCache;
 };

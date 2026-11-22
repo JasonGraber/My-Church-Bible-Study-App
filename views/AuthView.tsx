@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
 import { User, AppView } from '../types';
-import { loginUser, registerUser, initiateGoogleLogin } from '../services/authService';
+import { loginUser, registerUser, initiateGoogleLogin, initiateOAuthLogin } from '../services/authService';
+import { platform, isNative } from '../services/platform';
 
 interface AuthViewProps {
   onLogin: (user: User) => void;
@@ -23,6 +24,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onShowLegal }) => {
       try {
           // This will redirect the user away from the app to Google
           await initiateGoogleLogin();
+          if (isNative) setIsGoogleLoading(false); // sign-in continues in the browser and returns through a link
       } catch (err: any) {
           console.error(err);
           setError("Google sign-in failed. Please try again.");
@@ -78,6 +80,19 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onShowLegal }) => {
             </div>
           )}
 
+          {platform === 'ios' && (
+          <div className="mb-3">
+              <button
+                onClick={async () => { setError(null); try { await initiateOAuthLogin('apple'); } catch (e) { setError("Apple sign-in failed. Please try again."); } }}
+                disabled={isGoogleLoading || isLoading}
+                className="w-full bg-black text-white font-bold py-3 rounded-xl border border-gray-600 flex items-center justify-center disabled:opacity-50"
+              >
+                <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.7c-.02-2.2 1.8-3.26 1.88-3.31-1.02-1.5-2.62-1.7-3.19-1.73-1.36-.14-2.65.8-3.34.8-.69 0-1.75-.78-2.88-.76-1.48.02-2.85.86-3.61 2.19-1.54 2.67-.39 6.62 1.11 8.79.73 1.06 1.61 2.25 2.75 2.21 1.1-.04 1.52-.71 2.86-.71 1.33 0 1.71.71 2.88.69 1.19-.02 1.94-1.08 2.67-2.14.84-1.23 1.19-2.42 1.21-2.48-.03-.01-2.32-.89-2.34-3.55zM14.18 6.2c.61-.74 1.02-1.76.91-2.78-.88.04-1.94.59-2.57 1.32-.56.65-1.06 1.7-.93 2.7.98.08 1.98-.5 2.59-1.24z"/></svg>
+                Sign in with Apple
+              </button>
+          </div>
+          )}
+
           {/* Google Sign In */}
           <div className="mb-6">
               <button 
@@ -86,7 +101,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onShowLegal }) => {
                 className="w-full bg-white text-gray-800 font-bold py-3 rounded-xl border border-gray-300 hover:bg-gray-100 transition-colors flex items-center justify-center relative shadow-sm disabled:opacity-70"
               >
                  {isGoogleLoading ? (
-                     <span className="text-sm">Redirecting to Google...</span>
+                     <span className="text-sm">{isNative ? "Continue in your browser..." : "Redirecting to Google..."}</span>
                  ) : (
                      <>
                         <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">

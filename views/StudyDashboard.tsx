@@ -1,4 +1,6 @@
 
+import { shareLink } from '../services/shareService';
+import { shareLinkForStudy } from '../services/platform';
 import React, { useState, useEffect } from 'react';
 import { SermonStudy, User, StudyParticipant } from '../types';
 import { getStudiesWithParticipants, deleteStudy, saveStudy } from '../services/storageService';
@@ -173,14 +175,13 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({ onSelectStudy, onCreate
 
   const handleNativeShare = async () => {
     if (!studyToShare) return;
-    const uniqueLink = `https://mychurchbible.app/share/${studyToShare.id}`;
-    const shareData = { title: studyToShare.sermonTitle, text: `Check out this Bible Study: "${studyToShare.sermonTitle}".`, url: uniqueLink };
     try {
-        if (navigator.share) await navigator.share(shareData);
-        else {
-            await navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`);
-            alert("Link copied to clipboard!");
-        }
+        const result = await shareLink({
+            title: studyToShare.sermonTitle,
+            text: `Join me in this Bible study: "${studyToShare.sermonTitle}".`,
+            url: shareLinkForStudy(studyToShare.id)
+        });
+        if (result === 'copied') alert("Link copied to clipboard!");
         closeShareModal();
     } catch (err) {
         console.error("Error sharing:", err);

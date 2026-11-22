@@ -1,10 +1,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { UserSettings, StudyDuration, StudyLength, GeoLocation, DEFAULT_SETTINGS, User, AppView } from '../types';
-import { saveSettings, getSettings, getUser, logoutUser, updateUser, syncLocalDataToCloud } from '../services/storageService';
+import { saveSettings, getSettings, getUser, logoutUser, updateUser, syncLocalDataToCloud, getBlockedUsers, unblockUser } from '../services/storageService';
+import { deleteAccount } from '../services/authService';
+import { isNative } from '../services/platform';
 import { getCurrentLocation } from '../services/geoService';
 import { searchChurch } from '../services/geminiService';
-import { requestNotificationPermission, getNotificationPermission, scheduleReminder, clearReminder } from '../services/notificationService';
+import { requestNotificationPermission, getNotificationPermission } from '../services/notificationService';
 
 interface SettingsViewProps {
   onUpdate: (settings: UserSettings) => void;
@@ -34,6 +36,34 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [notifPermission, setNotifPermission] = useState('default');
+  const [blocked, setBlocked] = useState<{ id: string; name: string }[]>([]);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteText, setDeleteText] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  useEffect(() => {
+    getNotificationPermission().then(setNotifPermission);
+    getBlockedUsers().then(setBlocked);
+  }, []);
+
+  const handleUnblock = async (id: string) => {
+    await unblockUser(id);
+    setBlocked((list) => list.filter((b) => b.id !== id));
+  };
+
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteAccount();
+      onLogout();
+    } catch (e: any) {
+      setDeleteError(e.message || "Your account could not be deleted. Please try again.");
+      setIsDeleting(false);
+    }
+  };
 
   useEffect(() => {
     const u = getUser();
@@ -242,29 +272,28 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
                 <div className="flex items-center justify-between">
                     <div>
                         <span className="text-gray-300 text-sm">Daily Study Reminder</span>
-                        {getNotificationPermission() === 'denied' && (
-                            <p className="text-[10px] text-red-400 mt-0.5">Blocked in browser settings</p>
+                        {notifPermission === 'denied' && (
+                            <p className="text-[10px] text-red-400 mt-0.5">{isNative ? "Turned off in your phone's settings for this app" : "Blocked in browser settings"}</p>
                         )}
-                        {getNotificationPermission() === 'unsupported' && (
+                        {notifPermission === 'unsupported' && (
                             <p className="text-[10px] text-yellow-400 mt-0.5">Not supported in this browser</p>
                         )}
                     </div>
                     <button
                         onClick={async () => {
                             if (localSettings.notificationsEnabled) {
-                                clearReminder();
                                 setLocalSettings({...localSettings, notificationsEnabled: false});
                             } else {
                                 const granted = await requestNotificationPermission();
+                                setNotifPermission(await getNotificationPermission());
                                 if (granted) {
                                     setLocalSettings({...localSettings, notificationsEnabled: true});
-                                    scheduleReminder(localSettings.notificationTime);
                                 } else {
-                                    alert('Notification permission was denied. Please enable notifications in your browser settings.');
+                                    alert(isNative ? "Notifications are turned off for this app. Turn them on in your phone's settings." : 'Notification permission was denied. Please enable notifications in your browser settings.');
                                 }
                             }
                         }}
-                        disabled={getNotificationPermission() === 'unsupported'}
+                        disabled={notifPermission === 'unsupported'}
                         className={`w-12 h-6 rounded-full transition-colors relative ${localSettings.notificationsEnabled ? 'bg-purple-600' : 'bg-gray-700'} disabled:opacity-40`}
                     >
                         <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${localSettings.notificationsEnabled ? 'right-1' : 'left-1'}`} />
@@ -279,14 +308,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
                             onChange={(e) => {
                                 const newTime = e.target.value;
                                 setLocalSettings({...localSettings, notificationTime: newTime});
-                                scheduleReminder(newTime);
                             }}
                             className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white outline-none"
                         />
                     </div>
                 )}
                 <div className="flex items-center justify-between">
-                    <span className="text-gray-300 text-sm">Sunday Geofence Alerts</span>
+                    <span className="text-gray-300 text-sm">Sunday reminder to record</span>
                     <button
                         onClick={() => setLocalSettings({...localSettings, sundayReminderEnabled: !localSettings.sundayReminderEnabled})}
                         className={`w-12 h-6 rounded-full transition-colors relative ${localSettings.sundayReminderEnabled ? 'bg-purple-600' : 'bg-gray-700'}`}
@@ -328,6 +356,44 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onUpdate, onLogout, onShowL
                 {isSyncing ? "Syncing..." : "Sync Local Data to Cloud"}
             </button>
         </div>
+
+        {/* Blocked people */}
+        {blocked.length > 0 && (
+          <div className="space-y-3">
+            <label className="block text-sm font-medium text-gray-400 uppercase tracking-wide">Blocked People</label>
+            <div className="bg-gray-800 rounded-xl border border-gray-700 divide-y divide-gray-700">
+              {blocked.map((b) => (
+                <div key={b.id} className="flex items-center justify-between p-4">
+                  <span className="text-sm text-white">{b.name}</span>
+                  <button onClick={() => handleUnblock(b.id)} className="text-xs font-bold text-purple-400 px-3 py-2">Unblock</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Delete account */}
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-gray-400 uppercase tracking-wide">Account</label>
+          <div className="bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <p className="text-xs text-gray-400 mb-3">Deleting your account removes your profile, studies, progress, posts and comments for good.</p>
+            <button onClick={() => { setShowDelete(true); setDeleteText(""); setDeleteError(""); }} className="w-full py-3 rounded-xl border border-red-800 text-red-400 text-sm font-bold">Delete my account</button>
+          </div>
+        </div>
+
+        {showDelete && (
+          <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-[80] p-6">
+            <div className="bg-gray-800 p-6 rounded-3xl border border-red-900/60 max-w-sm w-full">
+              <h3 className="text-xl font-bold text-white mb-2">Delete your account?</h3>
+              <p className="text-sm text-gray-300 mb-4">This cannot be undone. Everything you have created in the app will be removed.</p>
+              <label className="block text-xs text-gray-400 mb-1" htmlFor="delete-confirm">Type DELETE to confirm</label>
+              <input id="delete-confirm" value={deleteText} onChange={(e) => setDeleteText(e.target.value)} autoCapitalize="characters" autoComplete="off" className="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-3 text-white outline-none focus:border-red-500" />
+              {deleteError && <p className="text-xs text-red-400 mt-2">{deleteError}</p>}
+              <button onClick={handleDeleteAccount} disabled={deleteText.trim().toUpperCase() !== 'DELETE' || isDeleting} className="w-full mt-4 bg-red-600 text-white font-bold py-3 rounded-xl disabled:opacity-40">{isDeleting ? "Deleting..." : "Delete account"}</button>
+              <button onClick={() => setShowDelete(false)} disabled={isDeleting} className="w-full mt-2 py-3 text-gray-300 font-medium">Keep my account</button>
+            </div>
+          </div>
+        )}
 
         {/* Legal Footer */}
         <div className="flex justify-center space-x-6 pt-4">

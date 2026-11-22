@@ -1,232 +1,95 @@
-
-import { GoogleGenAI, Type } from "@google/genai";
-import { SermonStudy, UserSettings, StudyLength, Bulletin } from '../types';
+// Everything here goes through our own server. The AI key never reaches the phone or the browser.
+import { SermonStudy, UserSettings, Bulletin } from '../types';
 import { getCurrentUser } from './authService';
+import { supabase } from './supabaseClient';
+import { apiFetch } from './api';
 
-// Helper to convert Blob to Base64
-const blobToBase64 = (blob: Blob): Promise<string> => {
-  return new Promise((resolve, reject) => {
+const AUDIO_BUCKET = 'sermon-audio';
+const STUDY_TIMEOUT_MS = 6 * 60 * 1000;
+
+const blobToBase64 = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
-      const base64 = result.split(',')[1];
-      resolve(base64);
-    };
+    reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
+
+const toImagePayload = (images: Blob[]) =>
+  Promise.all(images.map(async (img) => ({ mimeType: img.type || 'image/jpeg', data: await blobToBase64(img) })));
+
+const EXTENSIONS: Record<string, string> = {
+  'audio/aac': 'aac', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3',
+  'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/flac': 'flac',
 };
 
-// Defensive JSON parsing helper
-const cleanAndParseJSON = (text: string) => {
-    try {
-        // Remove markdown formatting if present
-        const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        return JSON.parse(cleaned);
-    } catch (e) {
-        console.error("JSON Parsing failed for Gemini output:", text);
-        throw new Error("The AI returned a malformed response. Please try again.");
-    }
-};
-
-/**
- * Searches for churches via server-side endpoint that uses Gemini with Google Maps grounding.
- * This runs server-side to avoid 405 errors from browser-based Maps grounding requests.
- */
-export const searchChurch = async (query: string): Promise<{name: string, address: string, lat: number, lng: number, uri?: string, serviceTimes?: string[]}[]> => {
-  const response = await fetch('/api/church/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
-  });
-
-  if (!response.ok) {
-    throw new Error('Church search failed');
+/** Puts a recording in the user's private folder and returns its path. The server removes it after use. */
+async function uploadAudio(audio: Blob, mimeTypeHint?: string): Promise<string> {
+  const user = getCurrentUser();
+  if (!user) throw new Error('Please sign in again.');
+  const mimeType = (mimeTypeHint || audio.type || 'audio/mp4').split(';')[0];
+  const path = `${user.id}/${crypto.randomUUID()}.${EXTENSIONS[mimeType] || 'm4a'}`;
+  const { error } = await supabase.storage.from(AUDIO_BUCKET).upload(path, audio, { contentType: mimeType, upsert: false });
+  if (error) {
+    throw new Error(/exceeded|too large/i.test(error.message)
+      ? 'That recording is too large to upload (the limit is 150 MB).'
+      : 'The recording could not be uploaded. Check your connection and try again.');
   }
+  return path;
+}
 
-  return response.json();
-};
+export const searchChurch = (query: string) =>
+  apiFetch<{ name: string; address: string; lat: number; lng: number; uri?: string; serviceTimes?: string[] }[]>(
+    '/api/church/search', { body: { query } });
 
-/**
- * Uses gemini-3-flash-preview for general text and image analysis tasks.
- */
 export const processBulletin = async (images: Blob[]): Promise<Bulletin> => {
-  if (!process.env.API_KEY) throw new Error("API Key missing");
-
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-  const schema = {
-    type: Type.OBJECT,
-    properties: {
-      title: { type: Type.STRING },
-      rawSummary: { type: Type.STRING },
-      events: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            date: { type: Type.STRING },
-            time: { type: Type.STRING },
-            location: { type: Type.STRING },
-            description: { type: Type.STRING }
-          },
-          required: ["title", "date", "time", "location", "description"]
-        }
-      }
-    },
-    required: ["title", "events", "rawSummary"]
-  };
-
-  const parts: any[] = [];
-  for (const imgBlob of images) {
-    const base64Img = await blobToBase64(imgBlob);
-    parts.push({
-        inlineData: {
-            mimeType: imgBlob.type || 'image/jpeg',
-            data: base64Img
-        }
-    });
-  }
-
-  const instruction = `Analyze these images of a church bulletin. 
-  Extract a list of upcoming events. 
-  Infer the correct YYYY-MM-DD for dates based on current date: ${new Date().toISOString().split('T')[0]}.`;
-
-  parts.push({ text: instruction });
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: { parts },
-    config: {
-        responseMimeType: "application/json",
-        responseSchema: schema,
-    }
-  });
-
-  const text = response.text;
-  if (!text) throw new Error("Failed to process bulletin");
-
-  const data = cleanAndParseJSON(text);
-  const user = getCurrentUser();
-
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const data = await apiFetch<{ title: string; rawSummary: string; events: any[] }>(
+    '/api/bulletins/process', { body: { images: await toImagePayload(images), today }, timeoutMs: 120000 });
   return {
     id: crypto.randomUUID(),
-    userId: user?.id || 'anonymous',
+    userId: getCurrentUser()?.id || 'anonymous',
     dateScanned: new Date().toISOString(),
-    title: data.title || "Announcements",
-    events: (data.events || []).map((e: any) => ({
-      ...e,
-      id: crypto.randomUUID()
-    })),
-    rawSummary: data.rawSummary || ""
+    title: data.title,
+    events: data.events.map((e) => ({ ...e, id: crypto.randomUUID() })),
+    rawSummary: data.rawSummary,
   };
 };
 
-/**
- * Uses gemini-3-pro-preview for complex reasoning and content generation.
- */
 export const generateBibleStudy = async (
-  input: { audioBlob?: Blob; text?: string; images?: Blob[]; youtubeUrl?: string },
-  settings: UserSettings
+  input: { audioBlob?: Blob; audioMimeType?: string; audioDurationSeconds?: number; text?: string; images?: Blob[]; youtubeUrl?: string },
+  settings: UserSettings,
+  onStage?: (stage: 'UPLOADING' | 'WRITING') => void
 ): Promise<SermonStudy> => {
-  if (!process.env.API_KEY) throw new Error("API Key missing");
-
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-  let wordCount = "150";
-  if (settings.studyLength === StudyLength.MEDIUM) wordCount = "300";
-  if (settings.studyLength === StudyLength.LONG) wordCount = "600";
-  const refCount = settings.supportingReferencesCount || 0;
-
-  const schema = {
-    type: Type.OBJECT,
-    properties: {
-      sermonTitle: { type: Type.STRING },
-      preacher: { type: Type.STRING },
-      summary: { type: Type.STRING },
-      days: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            day: { type: Type.INTEGER },
-            topic: { type: Type.STRING },
-            scriptureReference: { type: Type.STRING },
-            supportingScriptures: { type: Type.ARRAY, items: { type: Type.STRING } },
-            devotionalContent: { type: Type.STRING },
-            reflectionQuestion: { type: Type.STRING },
-            prayerFocus: { type: Type.STRING },
-          },
-          required: ["day", "topic", "scriptureReference", "supportingScriptures", "devotionalContent", "reflectionQuestion", "prayerFocus"]
-        }
-      }
-    },
-    required: ["sermonTitle", "days"]
-  };
-
-  let parts = [];
-  const instruction = `You are an expert Bible Study creator.
-    Create a ${settings.studyDuration}-day study based on provided sermon content.
-    Daily devotionals should be ~${wordCount} words. Include ${refCount} supporting scriptures per day.`;
-
+  let audioPath: string | undefined;
   if (input.audioBlob) {
-    const base64Audio = await blobToBase64(input.audioBlob);
-    parts.push({ inlineData: { mimeType: input.audioBlob.type || 'audio/mp3', data: base64Audio } });
-  } 
-  
-  if (input.images && input.images.length > 0) {
-    for (const imgBlob of input.images) {
-        const base64Img = await blobToBase64(imgBlob);
-        parts.push({ inlineData: { mimeType: imgBlob.type || 'image/jpeg', data: base64Img } });
-    }
+    onStage?.('UPLOADING');
+    audioPath = await uploadAudio(input.audioBlob, input.audioMimeType);
   }
-
-  if (input.text) {
-    parts.push({ text: input.text });
-  }
-
-  if (input.youtubeUrl) {
-    // Fetch transcript server-side (fast) rather than having Gemini process the full video (slow)
-    const transcriptRes = await fetch(`/api/transcript?url=${encodeURIComponent(input.youtubeUrl)}`);
-    if (!transcriptRes.ok) {
-      // Fall back to direct video processing if transcript unavailable
-      parts.push({ fileData: { mimeType: 'video/youtube', fileUri: input.youtubeUrl } });
-    } else {
-      const { transcript } = await transcriptRes.json();
-      parts.push({ text: `[YouTube Video Transcript]\n${transcript}` });
-    }
-  }
-  
-  parts.push({ text: instruction });
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: { parts },
-    config: {
-        responseMimeType: "application/json",
-        responseSchema: schema,
-    }
+  onStage?.('WRITING');
+  const data = await apiFetch<{ sermonTitle: string; preacher: string; days: any[] }>('/api/studies/generate', {
+    timeoutMs: STUDY_TIMEOUT_MS,
+    body: {
+      audioPath,
+      text: input.text,
+      youtubeUrl: input.youtubeUrl,
+      images: input.images?.length ? await toImagePayload(input.images) : undefined,
+      settings: {
+        studyDuration: settings.studyDuration,
+        studyLength: settings.studyLength,
+        supportingReferencesCount: settings.supportingReferencesCount,
+      },
+    },
   });
-
-  const responseText = response.text;
-  if (!responseText) throw new Error("Empty response from AI.");
-
-  const data = cleanAndParseJSON(responseText);
-  const user = getCurrentUser();
-
-  if (!data.days || !Array.isArray(data.days) || data.days.length === 0) {
-      throw new Error("AI failed to generate study days.");
-  }
-
   return {
     id: crypto.randomUUID(),
-    userId: user?.id || 'anonymous',
-    sermonTitle: data.sermonTitle || "New Bible Study",
-    preacher: data.preacher || "Guest Speaker",
+    userId: getCurrentUser()?.id || 'anonymous',
+    sermonTitle: data.sermonTitle,
+    preacher: data.preacher || 'Guest Speaker',
     dateRecorded: new Date().toISOString(),
-    originalAudioDuration: 0,
+    originalAudioDuration: Math.round(input.audioDurationSeconds || 0),
     isCompleted: false,
-    days: data.days.map((d: any) => ({ ...d, isCompleted: false }))
+    days: data.days.map((d) => ({ ...d, isCompleted: false })),
   };
 };

@@ -2,19 +2,18 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# My Church Bible Study
 
-This contains everything you need to run your app locally.
+Record or upload Sunday's sermon and get a 5 or 7 day Bible study built from it.
+One React codebase runs as a website and, through Capacitor, as Android and iOS apps.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1p5Y5MW9RTF6uVwnZSS6xgSMUIHcGUxDf
+- `docs/MOBILE_APP_PLAN.md` the plan and where it stands
+- `docs/RELEASING.md` how to build, test, deploy and release
+- `website/` the marketing site
 
-## Run Locally
+## Run locally
 
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. `npm install`
+2. Copy `.env.example` to `.env.local` and fill it in
+3. `npm run build && PORT=8080 node --env-file=.env.local server.js` for the server
+4. `npm run dev` for the web app with live reload (it forwards `/api` to port 8080)

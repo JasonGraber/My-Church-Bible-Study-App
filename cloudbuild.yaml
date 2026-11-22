@@ -6,33 +6,34 @@ steps:
       - '-c'
       - |
         docker build \
-          --build-arg GEMINI_API_KEY=$$GEMINI_API_KEY \
           --build-arg SUPABASE_URL=$$SUPABASE_URL \
           --build-arg SUPABASE_KEY=$$SUPABASE_KEY \
           --build-arg COMMIT_SHA=${COMMIT_SHA} \
           -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA} \
           -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:latest \
           .
-    secretEnv: ['GEMINI_API_KEY', 'SUPABASE_URL', 'SUPABASE_KEY']
+    secretEnv: ['SUPABASE_URL', 'SUPABASE_KEY']
 
   # Push the image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}']
 
-  # Deploy to Cloud Run
+  # Deploy to Cloud Run. The server reads the AI key and the Supabase settings when it runs,
+  # so they are set on the service here. Nothing secret is compiled into the web app any more.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
+    entrypoint: 'bash'
     args:
-      - 'run'
-      - 'deploy'
-      - '${_SERVICE_NAME}'
-      - '--image'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA}'
-      - '--region'
-      - '${_REGION}'
-      - '--platform'
-      - 'managed'
-      - '--allow-unauthenticated'
+      - '-c'
+      - |
+        gcloud run deploy ${_SERVICE_NAME} \
+          --image ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA} \
+          --region ${_REGION} \
+          --platform managed \
+          --allow-unauthenticated \
+          --timeout 600 \
+          --memory 1Gi \
+          --update-env-vars "GEMINI_API_KEY=$$GEMINI_API_KEY,SUPABASE_URL=$$SUPABASE_URL,SUPABASE_KEY=$$SUPABASE_KEY"
+    secretEnv: ['GEMINI_API_KEY', 'SUPABASE_URL', 'SUPABASE_KEY']
 
 # Secrets from Secret Manager
 availableSecrets:

@@ -1,0 +1,11 @@
+{
+  "name": "sermon-recorder",
+  "version": "1.0.0",
+  "description": "Records a sermon in the background on Android and iOS.",
+  "license": "UNLICENSED",
+  "private": true,
+  "author": "My Church Bible Study",
+  "files": ["android/src/main/", "android/build.gradle", "ios/Sources", "Package.swift", "SermonRecorder.podspec"],
+  "capacitor": { "ios": { "src": "ios" }, "android": { "src": "android" } },
+  "peerDependencies": { "@capacitor/core": ">=8.0.0" }
+}

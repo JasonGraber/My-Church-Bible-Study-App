@@ -34,3 +34,12 @@ README.md
 
 # Cloud Build config (not needed in container)
 cloudbuild.yaml
+
+# Phone app projects and the marketing site are not part of the server image
+android
+ios
+assets
+website
+tests
+docs
+supabase

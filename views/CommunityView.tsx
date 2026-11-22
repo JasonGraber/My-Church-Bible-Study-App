@@ -3,7 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { Post, User } from '../types';
 import { getFeed, toggleLikePost, commentOnPost } from '../services/socialService';
 import { getCommunityUsers, toggleFriend, getCurrentUser } from '../services/authService';
-import { joinStudy } from '../services/storageService';
+import { joinStudy, reportContent, blockUser, deletePost } from '../services/storageService';
+import { shareLink } from '../services/shareService';
+import { SITE_URL } from '../services/platform';
 
 interface CommunityViewProps {
     onViewProfile?: (userId: string) => void;
@@ -23,6 +25,38 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
     
     // Join Study State
     const [joiningMap, setJoiningMap] = useState<Record<string, boolean>>({});
+    const [menuPost, setMenuPost] = useState<Post | null>(null);
+
+    const handleReport = async (post: Post) => {
+        setMenuPost(null);
+        const reason = window.prompt("What is wrong with this post?");
+        if (reason === null) return;
+        try {
+            await reportContent('post', post.id, post.userId, reason);
+            setPosts(prev => prev.filter(p => p.id !== post.id));
+            alert("Thank you. The post has been reported and hidden from your feed.");
+        } catch (e: any) { alert(e.message); }
+    };
+
+    const handleBlock = async (post: Post) => {
+        setMenuPost(null);
+        if (!window.confirm(`Block ${post.userName}? You will no longer see each other's posts or comments.`)) return;
+        try {
+            await blockUser(post.userId);
+            setPosts(prev => prev.filter(p => p.userId !== post.userId));
+            setPeople(prev => prev.filter(p => p.id !== post.userId));
+            setCurrentUser(getCurrentUser());
+        } catch (e: any) { alert(e.message); }
+    };
+
+    const handleDeletePost = async (post: Post) => {
+        setMenuPost(null);
+        if (!window.confirm("Delete this post?")) return;
+        try {
+            await deletePost(post.id);
+            setPosts(prev => prev.filter(p => p.id !== post.id));
+        } catch (e: any) { alert(e.message); }
+    };
 
     useEffect(() => {
         loadData();
@@ -91,26 +125,15 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
     };
 
     const handleInvite = async () => {
-        const shareData = {
-            title: 'Join My Church Bible Study',
-            text: 'I\'m using this app to generate bible studies from Sunday sermons. Join me!',
-            url: window.location.href
-        };
-        
         try {
-            if (navigator.share) {
-                await navigator.share(shareData);
-            } else {
-                throw new Error("Share API unavailable");
-            }
-        } catch (e) {
-            // Fallback to clipboard
-            try {
-                await navigator.clipboard.writeText(`${shareData.text} ${shareData.url}`);
-                alert("Invite link copied to clipboard!");
-            } catch (err) {
-                alert("Could not automatically copy link. Please share this URL: " + window.location.href);
-            }
+            const result = await shareLink({
+                title: 'Join My Church Bible Study',
+                text: "I'm using this app to turn Sunday's sermon into a Bible study for the week. Join me!",
+                url: SITE_URL
+            });
+            if (result === 'copied') alert("Invite link copied to clipboard!");
+        } catch (err) {
+            alert("Could not copy the link. Please share this address: " + SITE_URL);
         }
     };
 
@@ -213,6 +236,9 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
                                                 {post.type === 'STUDY_SHARE' ? 'Shared a study' : post.type === 'PRAYER_REQUEST' ? 'Prayer Request' : 'Update'} • {new Date(post.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
                                             </p>
                                         </div>
+                                        <button onClick={() => setMenuPost(post)} aria-label="Post options" className="ml-auto h-11 w-11 flex items-center justify-center text-gray-400 hover:text-white">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4z" /></svg>
+                                        </button>
                                     </div>
 
                                     {/* Post Content */}
@@ -440,6 +466,23 @@ const CommunityView: React.FC<CommunityViewProps> = ({ onViewProfile }) => {
                         </div>
                     </div>
 
+                </div>
+            )}
+            {menuPost && (
+                <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-[70] sm:items-center" onClick={() => setMenuPost(null)}>
+                    <div className="w-full max-w-sm p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="bg-gray-800 rounded-2xl overflow-hidden border border-gray-700">
+                            {menuPost.userId === currentUser?.id ? (
+                                <button onClick={() => handleDeletePost(menuPost)} className="w-full py-4 text-center text-red-400 font-medium">Delete post</button>
+                            ) : (
+                                <>
+                                    <button onClick={() => handleReport(menuPost)} className="w-full py-4 text-center text-red-400 font-medium border-b border-gray-700">Report post</button>
+                                    <button onClick={() => handleBlock(menuPost)} className="w-full py-4 text-center text-red-400 font-medium">Block {menuPost.userName}</button>
+                                </>
+                            )}
+                        </div>
+                        <button onClick={() => setMenuPost(null)} className="w-full py-4 bg-gray-800 rounded-2xl font-bold text-white border border-gray-700">Cancel</button>
+                    </div>
                 </div>
             )}
         </div>

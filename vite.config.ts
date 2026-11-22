@@ -8,11 +8,12 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        proxy: { '/api': 'http://localhost:8080' },
       },
       plugins: [react()],
       define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+        // The Gemini key is deliberately absent: it lives on the server only.
+        'process.env.API_BASE_URL': JSON.stringify(env.API_BASE_URL || ''),
         'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL),
         'process.env.SUPABASE_KEY': JSON.stringify(env.SUPABASE_KEY),
         'process.env.COMMIT_SHA': JSON.stringify(env.COMMIT_SHA || 'dev'),

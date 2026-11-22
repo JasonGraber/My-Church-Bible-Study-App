@@ -1,91 +1,123 @@
-let reminderTimer: ReturnType<typeof setTimeout> | null = null;
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { isNative } from './platform';
+import { UserSettings } from '../types';
 
-/** Register the service worker and return the registration (or null). */
+const DAILY_ID = 1001;
+const SUNDAY_ID_BASE = 2000; // one per service time
+const DAILY_TITLE = 'Bible Study Reminder';
+const DAILY_BODY = "Time for today's Bible study. Open the app to pick up where you left off.";
+
+let webTimer: ReturnType<typeof setTimeout> | null = null;
+
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
-  if (!('serviceWorker' in navigator)) return null;
+  if (isNative || !('serviceWorker' in navigator)) return null;
   try {
-    const reg = await navigator.serviceWorker.register('./sw.js');
-    return reg;
+    return await navigator.serviceWorker.register('./sw.js');
   } catch (e) {
     console.warn('SW registration failed:', e);
     return null;
   }
 }
 
-/** Request notification permission. Returns true if granted. */
+/** Asks for permission to show notifications. Returns true if granted. */
 export async function requestNotificationPermission(): Promise<boolean> {
+  if (isNative) {
+    const current = await LocalNotifications.checkPermissions();
+    if (current.display === 'granted') return true;
+    return (await LocalNotifications.requestPermissions()).display === 'granted';
+  }
   if (!('Notification' in window)) return false;
   if (Notification.permission === 'granted') return true;
   if (Notification.permission === 'denied') return false;
-  const result = await Notification.requestPermission();
-  return result === 'granted';
+  return (await Notification.requestPermission()) === 'granted';
 }
 
-/** Returns current permission state: 'granted' | 'denied' | 'default' | 'unsupported' */
-export function getNotificationPermission(): string {
+/** 'granted' | 'denied' | 'default' | 'unsupported' */
+export async function getNotificationPermission(): Promise<string> {
+  if (isNative) {
+    const { display } = await LocalNotifications.checkPermissions();
+    return display === 'granted' ? 'granted' : display === 'denied' ? 'denied' : 'default';
+  }
   if (!('Notification' in window)) return 'unsupported';
   return Notification.permission;
 }
 
-/**
- * Schedule a daily reminder notification at the given time (HH:MM).
- * Uses setTimeout to fire at the next occurrence, then re-schedules.
- * If the app/tab is closed the timer won't fire — this is a best-effort
- * client-side approach suitable for a PWA without a push server.
- */
-export function scheduleReminder(timeStr: string): void {
-  clearReminder();
-
-  if (Notification.permission !== 'granted') return;
-
-  const fire = () => {
-    showReminderNotification();
-    // Re-schedule for the next day
-    reminderTimer = setTimeout(fire, 24 * 60 * 60 * 1000);
-  };
-
-  const msUntilNext = msUntilTime(timeStr);
-  reminderTimer = setTimeout(fire, msUntilNext);
+/** "9:00 AM", "11:15am" or "18:30" to hours and minutes. Null if it cannot be read. */
+export function parseClockTime(value: string): { hour: number; minute: number } | null {
+  const m = String(value || '').trim().match(/^(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*([ap])?\.?m?\.?$/i);
+  if (!m) return null;
+  let hour = Number(m[1]);
+  const minute = Number(m[2] || 0);
+  const half = m[3]?.toLowerCase();
+  if (half === 'p' && hour < 12) hour += 12;
+  if (half === 'a' && hour === 12) hour = 0;
+  return hour > 23 || minute > 59 ? null : { hour, minute };
 }
 
-/** Cancel any pending reminder timer. */
-export function clearReminder(): void {
-  if (reminderTimer !== null) {
-    clearTimeout(reminderTimer);
-    reminderTimer = null;
+/**
+ * Sets the phone's reminders to match the settings: one every day at the chosen time, and one
+ * on Sunday ten minutes before each service. On the phone these fire with the app closed.
+ */
+export async function syncReminders(settings: UserSettings, signedIn: boolean): Promise<void> {
+  if (!isNative) {
+    clearWebReminder();
+    if (signedIn && settings.notificationsEnabled) scheduleWebReminder(settings.notificationTime);
+    return;
+  }
+  try {
+    const pending = await LocalNotifications.getPending();
+    if (pending.notifications.length) await LocalNotifications.cancel({ notifications: pending.notifications.map((n) => ({ id: n.id })) });
+    if (!signedIn || (await LocalNotifications.checkPermissions()).display !== 'granted') return;
+
+    const notifications = [];
+    const daily = settings.notificationsEnabled ? parseClockTime(settings.notificationTime) : null;
+    if (daily) {
+      notifications.push({ id: DAILY_ID, title: DAILY_TITLE, body: DAILY_BODY, schedule: { on: daily, allowWhileIdle: true } });
+    }
+    if (settings.sundayReminderEnabled) {
+      (settings.serviceTimes || []).slice(0, 4).forEach((time, i) => {
+        const t = parseClockTime(time);
+        if (!t) return;
+        const at = new Date(2000, 0, 2, t.hour, t.minute - 10); // any Sunday; only the clock time is used
+        notifications.push({
+          id: SUNDAY_ID_BASE + i,
+          title: 'Service starts soon',
+          body: `Open the app to record today's message${settings.churchName ? ` at ${settings.churchName}` : ''}.`,
+          schedule: { on: { weekday: 1, hour: at.getHours(), minute: at.getMinutes() }, allowWhileIdle: true },
+        });
+      });
+    }
+    if (notifications.length) await LocalNotifications.schedule({ notifications });
+  } catch (e) {
+    console.warn('Could not schedule reminders:', e);
   }
 }
 
-/** Show the reminder notification via the service worker (or fallback). */
-async function showReminderNotification(): Promise<void> {
+// ---- Website fallback: only fires while the page is open --------------------
+function scheduleWebReminder(timeStr: string): void {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const t = parseClockTime(timeStr);
+  if (!t) return;
+  const fire = () => {
+    showWebNotification();
+    webTimer = setTimeout(fire, 24 * 60 * 60 * 1000);
+  };
+  const target = new Date();
+  target.setHours(t.hour, t.minute, 0, 0);
+  if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+  webTimer = setTimeout(fire, target.getTime() - Date.now());
+}
+
+function clearWebReminder(): void {
+  if (webTimer !== null) clearTimeout(webTimer);
+  webTimer = null;
+}
+
+async function showWebNotification(): Promise<void> {
   const reg = await navigator.serviceWorker?.ready;
   if (reg?.active) {
-    reg.active.postMessage({
-      type: 'SHOW_NOTIFICATION',
-      title: 'Bible Study Reminder',
-      body: "Time for today's Bible study! Open the app to continue your journey.",
-      tag: 'daily-study-reminder'
-    });
-  } else if ('Notification' in window && Notification.permission === 'granted') {
-    // Fallback if SW not available
-    new Notification('Bible Study Reminder', {
-      body: "Time for today's Bible study! Open the app to continue your journey.",
-      tag: 'daily-study-reminder'
-    });
+    reg.active.postMessage({ type: 'SHOW_NOTIFICATION', title: DAILY_TITLE, body: DAILY_BODY, tag: 'daily-study-reminder' });
+  } else if (Notification.permission === 'granted') {
+    new Notification(DAILY_TITLE, { body: DAILY_BODY, tag: 'daily-study-reminder' });
   }
-}
-
-/** Calculate milliseconds from now until the next occurrence of HH:MM today or tomorrow. */
-function msUntilTime(timeStr: string): number {
-  const [h, m] = timeStr.split(':').map(Number);
-  const now = new Date();
-  const target = new Date();
-  target.setHours(h, m, 0, 0);
-
-  // If the target time already passed today, schedule for tomorrow
-  if (target.getTime() <= now.getTime()) {
-    target.setDate(target.getDate() + 1);
-  }
-
-  return target.getTime() - now.getTime();
 }

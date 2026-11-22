@@ -13,8 +13,8 @@ const NavBar: React.FC<NavBarProps> = ({ currentView, setView }) => {
     }`;
 
   return (
-    <nav className="fixed bottom-0 left-0 w-full bg-gray-900 border-t border-gray-800 h-16 z-50 pb-safe">
-      <div className="flex justify-around h-full items-center max-w-lg mx-auto px-1">
+    <nav className="fixed bottom-0 left-0 w-full bg-gray-900 border-t border-gray-800 z-50" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <div className="flex justify-around h-16 items-center max-w-lg mx-auto px-1">
         
         {/* ADD */}
         <button onClick={() => setView(AppView.RECORD)} className={navItemClass(AppView.RECORD)}>
